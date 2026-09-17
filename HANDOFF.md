@@ -35,22 +35,28 @@ is the open item. History of the crash and where it stands:
    a manual roll**. So the record + the replay call are fine; the crash was the **whole-window
    subclass** the agent used to run the replay on the game thread (SetWindowLongPtr on the
    "Anarchy client" main window + a managed WndProc on every message). That is now **removed**.
-4. **Current mechanism (needs live verification):** the replay runs from inside the
-   `DataBlockToMessage` hook (already on the client's own message thread), guarded by
-   `gameThread == GetCurrentThreadId()` (the thread the Request button ran on, captured in
-   `OnGenerate`). If Anarchy Online decodes network messages on a **different** thread than the
-   mission-terminal button, the guard fails and the hook returns `CommandStatus.NotSupported` — the
-   agent reports **"cannot roll from the hook"** (no crash), and we need a different on-thread pump.
+4. **First attempt (rejected by a live test):** replay from inside the `DataBlockToMessage` hook,
+   guarded by `gameThread == GetCurrentThreadId()`. The retail client decodes server blocks on a
+   **different** thread than the mission-terminal button, so the guard failed and the agent reported
+   **"cannot roll from the hook"** — confirming DataBlock and the button run on different threads.
+5. **Current mechanism (needs live verification):** the replay is pumped from a hook on the client's
+   **message-pump** function. The retail engine (`Anarchy.exe`) imports `PeekMessageA` and calls it
+   every frame on its UI thread — the same thread the Request button dispatches on. The hook
+   (`PeekMessageDetour`, a correct `__stdcall` reverse callback) calls the real pump, then, if a roll
+   is queued, replays `N3Msg_GenerateMissions` right there — a quiescent point between messages, on
+   the button's own thread. No window subclass. `RunPendingRequest` keeps its
+   `thread == GetCurrentThreadId()` guard as defense; on the pump thread it now matches. If the host
+   imports no pump function at all, rolling reports `NotSupported` up front instead of hanging.
+   Which pump is hooked: first of `PeekMessageA / PeekMessageW / GetMessageA / GetMessageW` found in
+   the process's IATs (`MessagePumpImports` in `Hook.cs`).
 
 ### What to ask / check next
-- After the user's next test, the two outcomes: (a) it rolls and matches — done; or (b) it says
-  **"cannot roll from the hook"** after a hand-roll + Start — that's the thread guard, meaning
-  DataBlock and the button are on different threads, so find another way to run on the button's
-  thread (e.g. a different frequently-called client function that runs on the UI thread, or a
-  timer/APC queued to that thread).
-- Fallback if on-thread replay can't be made safe: replay at the **network level** — capture the
+- After the user's next test, the two outcomes: (a) it rolls and matches — **done**; or (b) it still
+  crashes or misbehaves on an agent roll — then the `PeekMessageA` replay point is not safe and we
+  fall back to network-level replay (below).
+- Fallback if on-thread replay still isn't safe: replay at the **network level** — capture the
   outgoing request packet when the player clicks Request and resend the bytes (never calls client
-  C++), which cannot corrupt client state.
+  C++), which cannot corrupt client state. `Connection.dll` is the module to hook for the send path.
 
 ## Build / run
 

@@ -12,8 +12,8 @@ namespace ClickSaver2026.Hook;
 ///   block into a message) and forwards every block to the app. All parsing happens in the app.
 /// - IAT-hooks N3InterfaceModule_t::N3Msg_GenerateMissions in Interfaces.dll (the call the mission
 ///   terminal's Request button makes) and records it. On the app's command it makes the same call
-///   again, on the client's own UI thread through the game window, so missions roll without the
-///   mouse.
+///   again from the message-pump hook (PeekMessage/GetMessage), which runs on the client's own UI
+///   thread - the button's thread - so missions roll without the mouse and without a window subclass.
 ///
 /// The DLL is resident for the client's lifetime: attaching installs the hooks, detaching removes
 /// them, and the pipe threads run throughout, reconnecting whenever the app comes and goes. The
@@ -22,6 +22,13 @@ namespace ClickSaver2026.Hook;
 internal static unsafe class Hook
 {
     private const string MessageProtocolDll = "MessageProtocol.dll";
+    private const string User32Dll = "user32.dll";
+
+    // The client's main loop pumps one of these every frame on its UI thread - the same thread the
+    // mission-terminal Request button runs on. Hooking whichever one the client imports gives us a
+    // safe on-thread moment (between messages, before a frame) to replay a roll, without subclassing
+    // the game window. The retail engine (Anarchy.exe) uses PeekMessageA; the others are fallbacks.
+    private static readonly string[] MessagePumpImports = ["PeekMessageA", "PeekMessageW", "GetMessageA", "GetMessageW"];
 
     // The game imports "?DataBlockToMessage@@YAPAVMessage_t@@IPAX@Z"; matched by this prefix so a
     // stand-in that dropped the signature suffix ("?DataBlockToMessage") matches too.
@@ -60,6 +67,10 @@ internal static unsafe class Hook
     private static nint detourStub;         // __thiscall->__cdecl stub placed in the import slot
     private static nint replayStub;         // __cdecl->__thiscall stub the app uses to roll
     private static (string Dll, string Name) generateImport;
+    private static nint pumpOriginal;       // the client's real message-pump function
+    private static string pumpName = string.Empty;
+    private static bool pumpIsGet;          // a 4-arg GetMessage rather than a 5-arg PeekMessage
+    private static bool pumpHooked;
     private static bool messagesHooked;
     private static bool requestsHooked;
     private static HookStatus status = HookStatus.MessageProtocolNotLoaded;
@@ -94,6 +105,15 @@ internal static unsafe class Hook
     public static uint ClickSaverShutdown(nint _)
     {
         active = false;
+
+        if (pumpHooked)
+        {
+            nint detour = pumpIsGet
+                ? (nint)(delegate* unmanaged[Stdcall]<nint, nint, uint, uint, int>)&GetMessageDetour
+                : (nint)(delegate* unmanaged[Stdcall]<nint, nint, uint, uint, uint, int>)&PeekMessageDetour;
+            IatHook.Restore(User32Dll, pumpName, detour, pumpOriginal);
+            pumpHooked = false;
+        }
 
         if (requestsHooked)
         {
@@ -161,6 +181,29 @@ internal static unsafe class Hook
             }
         }
 
+        // With the Request call hooked, add the on-thread pump so a queued roll runs on the client's
+        // own UI thread. Whichever message-pump function the client actually imports is hooked; if
+        // none is (e.g. a non-game host), rolling reports NotSupported instead of running off-thread.
+        if (requestsHooked && !pumpHooked)
+        {
+            foreach (string name in MessagePumpImports)
+            {
+                bool isGet = name[0] == 'G';
+                nint detour = isGet
+                    ? (nint)(delegate* unmanaged[Stdcall]<nint, nint, uint, uint, int>)&GetMessageDetour
+                    : (nint)(delegate* unmanaged[Stdcall]<nint, nint, uint, uint, uint, int>)&PeekMessageDetour;
+                nint original = IatHook.PatchAll(User32Dll, name, detour);
+                if (original != 0)
+                {
+                    pumpOriginal = original;
+                    pumpName = name;
+                    pumpIsGet = isGet;
+                    pumpHooked = true;
+                    break;
+                }
+            }
+        }
+
         return HookStatus.Hooked;
     }
 
@@ -195,22 +238,54 @@ internal static unsafe class Hook
 
         nint result = ((delegate* unmanaged[Cdecl]<uint, nint, nint>)dataBlockOriginal)(size, data);
 
-        // This runs on the client's own message thread, which is where a roll must be issued from,
-        // so a pending roll is replayed here rather than by subclassing the game window.
-        if (requestsHooked && Volatile.Read(ref havePending))
-        {
-            try
-            {
-                RunPendingRequest();
-            }
-            catch
-            {
-                // A failed roll must never take the client down.
-            }
-        }
-
+        // Rolls are NOT replayed here: the retail client decodes server blocks on a different thread
+        // than the mission-terminal button, so calling the client from this thread is unsafe. The
+        // roll is pumped from the message-pump hook instead, which runs on the button's own thread.
         Interlocked.Decrement(ref inFlight);
         return result;
+    }
+
+    // The client's main loop calls this every frame on its UI thread (PeekMessage form: 5 args).
+    // After the real pump runs, a queued roll is replayed here - on the button's own thread.
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
+    private static int PeekMessageDetour(nint msg, nint window, uint filterMin, uint filterMax, uint remove)
+    {
+        int result = ((delegate* unmanaged[Stdcall]<nint, nint, uint, uint, uint, int>)pumpOriginal)(msg, window, filterMin, filterMax, remove);
+        PumpPendingRequest();
+        return result;
+    }
+
+    // The GetMessage form of the pump (4 args), used when the client imports GetMessage instead.
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
+    private static int GetMessageDetour(nint msg, nint window, uint filterMin, uint filterMax)
+    {
+        int result = ((delegate* unmanaged[Stdcall]<nint, nint, uint, uint, int>)pumpOriginal)(msg, window, filterMin, filterMax);
+        PumpPendingRequest();
+        return result;
+    }
+
+    // Runs on the client's UI thread from the message-pump hook. Cheap on the common path (just a
+    // volatile read) so it is safe to call every frame; only does work when a roll is queued.
+    private static void PumpPendingRequest()
+    {
+        if (!requestsHooked || !Volatile.Read(ref havePending))
+        {
+            return;
+        }
+
+        Interlocked.Increment(ref inFlight);
+        try
+        {
+            RunPendingRequest();
+        }
+        catch
+        {
+            // A failed roll must never take the client down.
+        }
+        finally
+        {
+            Interlocked.Decrement(ref inFlight);
+        }
     }
 
     // Called (as __cdecl) by the detour trampoline before the real Request call runs. It only
@@ -305,8 +380,9 @@ internal static unsafe class Hook
             return;
         }
 
-        if (!active || !requestsHooked)
+        if (!active || !requestsHooked || !pumpHooked)
         {
+            // Without both the Request hook and the on-thread pump there is no safe way to roll.
             SendCommandResult(id, CommandStatus.NotSupported);
             return;
         }
@@ -335,7 +411,7 @@ internal static unsafe class Hook
             havePending = true;
         }
 
-        // The roll itself runs in the DataBlockToMessage hook, on the client's own message thread.
+        // The roll itself runs from the message-pump hook, on the client's own UI thread.
     }
 
     // ---- Frames to the app ----
