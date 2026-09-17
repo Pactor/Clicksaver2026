@@ -78,6 +78,36 @@ public sealed class MissionsViewModel : ObservableObject, IDisposable
         this.OnPropertyChanged(nameof(this.Placeholder));
     }
 
+    /// <summary>
+    /// True when any mission in the list has a reward item name, or an item to find, that the
+    /// watch matches. Reward names come from the game database when it is set.
+    /// </summary>
+    public bool Matches(MissionList list, WatchQuery watch)
+    {
+        if (watch.IsEmpty)
+        {
+            return false;
+        }
+
+        foreach (Mission mission in list.Missions)
+        {
+            foreach (MissionRewardItem reward in mission.Rewards)
+            {
+                if (this.database is { } db && watch.Matches(db.Resolve(reward).Name))
+                {
+                    return true;
+                }
+            }
+
+            if (mission.FindItem is { } find && watch.Matches(find))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>Shows every mission list in a capture file.</summary>
     public int LoadCapture(string path)
     {

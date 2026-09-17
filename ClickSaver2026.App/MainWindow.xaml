@@ -41,6 +41,32 @@
                         <TextBlock Grid.Row="1" Grid.ColumnSpan="5" Text="{Binding DatabaseStatus}" Margin="0,4,0,0" Opacity="0.75" />
                     </Grid>
 
+                    <GroupBox Header="Buying agent" DockPanel.Dock="Top" Margin="0,0,0,8"
+                              DataContext="{Binding DataContext.BuyingAgent, RelativeSource={RelativeSource AncestorType=Window}}">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Watch items:" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <TextBox Grid.Column="1" Text="{Binding ItemWatch, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center"
+                                     ToolTip="Space-separated terms (all must match), -term to exclude, &quot;quoted phrase&quot;. Matched against reward item names." />
+                            <TextBlock Grid.Column="2" Text="Max rolls:" VerticalAlignment="Center" Margin="12,0,4,0" />
+                            <TextBox Grid.Column="3" Text="{Binding MaxRolls}" Width="52" VerticalAlignment="Center" />
+                            <Button Grid.Column="4" Content="Start" Command="{Binding StartCommand}" Margin="8,0,0,0" MinWidth="70" />
+                            <Button Grid.Column="5" Content="Stop" Command="{Binding StopCommand}" Margin="4,0,0,0" MinWidth="70" />
+                            <TextBlock Grid.Row="1" Grid.ColumnSpan="6" Text="{Binding Status}" Margin="0,6,0,0" Opacity="0.85" TextTrimming="CharacterEllipsis" />
+                        </Grid>
+                    </GroupBox>
+
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="220" />

@@ -11,13 +11,19 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
     {
         this.Missions = new MissionsViewModel(AppSettings.Load());
         this.Hook = new HookViewModel(autoAttach);
+        this.BuyingAgent = new BuyingAgentViewModel(this.Hook, this.Missions);
         this.Hook.MissionListReceived += (list, message) =>
+        {
             this.Missions.Add(list, message.TimestampUtc, "process " + message.ProcessId.ToString(CultureInfo.CurrentCulture));
+            this.BuyingAgent.OnMissionList(message.ProcessId, list);
+        };
     }
 
     public MissionsViewModel Missions { get; }
 
     public HookViewModel Hook { get; }
+
+    public BuyingAgentViewModel BuyingAgent { get; }
 
     public async ValueTask DisposeAsync()
     {

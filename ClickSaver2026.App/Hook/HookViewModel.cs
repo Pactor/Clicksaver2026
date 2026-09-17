@@ -20,6 +20,7 @@ public sealed class HookViewModel : ObservableObject, IAsyncDisposable
     private const int MaxHexDumpBytes = 64 * 1024;
 
     private readonly HookServer server = new();
+    private readonly HookCommandServer commandServer = new();
     private readonly ConcurrentQueue<HookMessage> pending = new();
     private readonly ConcurrentDictionary<int, HookHello> connections = new();
     private readonly Lock captureGate = new();
@@ -48,6 +49,7 @@ public sealed class HookViewModel : ObservableObject, IAsyncDisposable
         this.server.ClientDisconnected += (hello, error) => this.connections.TryRemove(hello.ProcessId, out HookHello? _);
         this.server.Faulted += e => this.Post(() => this.Status = "Pipe error: " + e.Message);
         this.server.Start();
+        this.commandServer.Start();
 
         this.AttachCommand = new RelayCommand(() => this.RunOnClient(this.SelectedClient, attach: true), () => this.SelectedClient is { Busy: false });
         this.DetachCommand = new RelayCommand(() => this.RunOnClient(this.SelectedClient, attach: false), () => this.SelectedClient is { Busy: false, HookLoaded: true });
@@ -66,6 +68,12 @@ public sealed class HookViewModel : ObservableObject, IAsyncDisposable
 
     /// <summary>A mission terminal answered. Raised on the UI thread.</summary>
     public event Action<MissionList, HookMessage>? MissionListReceived;
+
+    /// <summary>A roll finished in the hook (id, status), for the buying agent. UI thread.</summary>
+    public event Action<int, uint, CommandStatus>? CommandResultReceived;
+
+    /// <summary>A roll was requested in the client - by the player or the agent. UI thread.</summary>
+    public event Action<int, RequestSource>? MissionRequestedReceived;
 
     public ObservableCollection<GameClientRow> Clients { get; } = [];
 
@@ -194,11 +202,23 @@ public sealed class HookViewModel : ObservableObject, IAsyncDisposable
         CultureInfo.CurrentCulture,
         $"Messages: {Interlocked.Read(ref this.totalMessages):N0}    Legacy mission signature: {Interlocked.Read(ref this.legacyMatches):N0}    Dropped by hook: {Interlocked.Read(ref this.dropped):N0}");
 
+    /// <summary>Ask the hook in <paramref name="processId"/> to roll missions once.</summary>
+    /// <returns>False when no command channel to that client is open.</returns>
+    public Task<bool> SendRollAsync(int processId, uint id, CancellationToken cancellation) =>
+        this.commandServer.SendAsync(processId, HookProtocol.RequestMissionsCommand, id, ReadOnlyMemory<byte>.Empty, cancellation);
+
+    /// <summary>A connected client that can roll missions, or null.</summary>
+    public int? RollableClient =>
+        this.connections.Values.FirstOrDefault(h => h.CanRequestMissions && this.commandServer.CanSend(h.ProcessId)) is { } hello
+            ? hello.ProcessId
+            : null;
+
     public async ValueTask DisposeAsync()
     {
         this.drainTimer.Stop();
         this.scanTimer.Stop();
         await this.server.DisposeAsync().ConfigureAwait(true);
+        await this.commandServer.DisposeAsync().ConfigureAwait(true);
         this.SetCapture(false);
     }
 
@@ -217,6 +237,24 @@ public sealed class HookViewModel : ObservableObject, IAsyncDisposable
         {
             this.Post(() => this.MissionListReceived?.Invoke(missions, message));
         }
+
+        switch (message.Kind)
+        {
+            case HookMessageKind.CommandResult when message.Data.Length >= 8:
+            {
+                var (id, status) = HookProtocol.ParseCommandResult(message.Data);
+                this.Post(() => this.CommandResultReceived?.Invoke(message.ProcessId, id, status));
+                break;
+            }
+
+            case HookMessageKind.MissionRequested when message.Data.Length >= 4:
+            {
+                var (source, _) = HookProtocol.ParseMissionRequested(message.Data);
+                this.Post(() => this.MissionRequestedReceived?.Invoke(message.ProcessId, source));
+                break;
+            }
+        }
+
         if (legacy)
         {
             Interlocked.Increment(ref this.legacyMatches);
