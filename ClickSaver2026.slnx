@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ClickSaver2026.App/ClickSaver2026.App.csproj" />
+    <Project Path="src/ClickSaver2026.Core/ClickSaver2026.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ClickSaver2026.Tests/ClickSaver2026.Tests.csproj" />
+  </Folder>
+</Solution>

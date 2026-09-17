@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <UseWPF>true</UseWPF>
+    <!-- 32-bit so the app can hand its own LoadLibraryW address to the 32-bit client. -->
+    <PlatformTarget>x86</PlatformTarget>
+    <AssemblyName>ClickSaver2026</AssemblyName>
+    <RootNamespace>ClickSaver2026.App</RootNamespace>
+    <!-- ThemeMode (Fluent) is still marked experimental. -->
+    <NoWarn>$(NoWarn);WPF0001</NoWarn>
+
+    <HookDll>$(MSBuildThisFileDirectory)..\..\build\hook\$(Configuration)\ClickSaver2026.Hook.dll</HookDll>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ClickSaver2026.Core\ClickSaver2026.Core.csproj" />
+  </ItemGroup>
+
+  <!-- The hook is built by CMake (build.ps1 does both); copy it next to the exe when present. -->
+  <ItemGroup Condition="Exists('$(HookDll)')">
+    <None Include="$(HookDll)" Link="ClickSaver2026.Hook.dll" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <Target Name="ReportMissingHook" BeforeTargets="Build" Condition="!Exists('$(HookDll)')">
+    <Message Importance="high" Text="ClickSaver2026.Hook.dll not found at $(HookDll) - run build.ps1 to build the hook first." />
+  </Target>
+
+</Project>
