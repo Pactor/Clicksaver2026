@@ -55,6 +55,8 @@ public sealed class HookViewModel : ObservableObject, IAsyncDisposable
         this.AttachCommand = new RelayCommand(() => this.RunOnClient(this.SelectedClient, attach: true), () => this.SelectedClient is { Busy: false });
         this.DetachCommand = new RelayCommand(() => this.RunOnClient(this.SelectedClient, attach: false), () => this.SelectedClient is { Busy: false, HookLoaded: true });
         this.RefreshCommand = new RelayCommand(this.Scan);
+        this.DetachAllCommand = new RelayCommand(this.DetachAll, () => this.Clients.Any(c => c is { HookLoaded: true, Busy: false, ProcessId: not 0 }));
+        this.ReattachAllCommand = new RelayCommand(this.ReattachAll, () => this.Clients.All(c => !c.Busy));
         this.ClearCommand = new RelayCommand(this.Messages.Clear);
         this.OpenCaptureFolderCommand = new RelayCommand(this.OpenCaptureFolder);
 
@@ -85,6 +87,10 @@ public sealed class HookViewModel : ObservableObject, IAsyncDisposable
     public RelayCommand DetachCommand { get; }
 
     public RelayCommand RefreshCommand { get; }
+
+    public RelayCommand DetachAllCommand { get; }
+
+    public RelayCommand ReattachAllCommand { get; }
 
     public RelayCommand ClearCommand { get; }
 
@@ -410,7 +416,15 @@ public sealed class HookViewModel : ObservableObject, IAsyncDisposable
 
     private async void RunOnClient(GameClientRow? row, bool attach)
     {
-        if (row is null || row.Busy)
+        if (row is not null)
+        {
+            await this.RunOnClientAsync(row, attach).ConfigureAwait(true);
+        }
+    }
+
+    private async Task RunOnClientAsync(GameClientRow row, bool attach)
+    {
+        if (row.Busy || row.ProcessId == 0)
         {
             return;
         }
@@ -444,6 +458,33 @@ public sealed class HookViewModel : ObservableObject, IAsyncDisposable
         {
             row.Busy = false;
         }
+    }
+
+    private async void DetachAll()
+    {
+        foreach (GameClientRow row in this.Clients.Where(r => r.HookLoaded).ToList())
+        {
+            await this.RunOnClientAsync(row, attach: false).ConfigureAwait(true);
+        }
+
+        this.Status = "Detached from every client.";
+    }
+
+    // Detach then attach each client, to reset the hook without closing the app.
+    private async void ReattachAll()
+    {
+        this.Scan();
+        foreach (GameClientRow row in this.Clients.Where(r => r.ProcessId != 0).ToList())
+        {
+            if (row.HookLoaded)
+            {
+                await this.RunOnClientAsync(row, attach: false).ConfigureAwait(true);
+            }
+
+            await this.RunOnClientAsync(row, attach: true).ConfigureAwait(true);
+        }
+
+        this.Status = "Re-attached to every client.";
     }
 
     private void SetCapture(bool enabled)

@@ -149,10 +149,13 @@
 
                     <GroupBox Header="Game clients" Grid.Row="0">
                         <DockPanel>
-                            <StackPanel DockPanel.Dock="Right" Margin="8,0,0,0" MinWidth="120">
+                            <StackPanel DockPanel.Dock="Right" Margin="8,0,0,0" MinWidth="130">
                                 <Button Content="Attach" Command="{Binding AttachCommand}" Margin="0,0,0,4" />
                                 <Button Content="Detach" Command="{Binding DetachCommand}" Margin="0,0,0,4" />
                                 <Button Content="Refresh" Command="{Binding RefreshCommand}" Margin="0,0,0,8" />
+                                <Button Content="Detach all" Command="{Binding DetachAllCommand}" Margin="0,0,0,4" />
+                                <Button Content="Re-attach all" Command="{Binding ReattachAllCommand}" Margin="0,0,0,8"
+                                        ToolTip="Detach then re-attach every client, to reset the hook without closing the app." />
                                 <CheckBox Content="Attach automatically" IsChecked="{Binding AutoAttach}" />
                             </StackPanel>
                             <DataGrid ItemsSource="{Binding Clients}" SelectedItem="{Binding SelectedClient}"
