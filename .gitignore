@@ -7,3 +7,6 @@ build/
 
 # Captures are recordings of a live game session.
 *.cs26cap
+
+# Runnable copy made by build.ps1.
+out/

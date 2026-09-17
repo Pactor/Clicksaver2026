@@ -34,5 +34,10 @@ if ($Test) {
     Invoke-Step 'Test' { dotnet test --solution (Join-Path $root 'ClickSaver2026.slnx') -c $Configuration --no-build }
 }
 
-$output = Join-Path $root "src/ClickSaver2026.App/bin/$Configuration/net10.0-windows"
-Write-Host "Done: $output\ClickSaver2026.exe" -ForegroundColor Green
+# Everything needed to run, in one easy place: out\ClickSaver2026.exe
+$built = Join-Path $root "src/ClickSaver2026.App/bin/$Configuration/net10.0-windows"
+$out = Join-Path $root 'out'
+New-Item -ItemType Directory -Force $out | Out-Null
+Get-ChildItem $out -File | Where-Object Name -ne 'settings.json' | Remove-Item -Force -ErrorAction SilentlyContinue
+Copy-Item (Join-Path $built '*') $out -Recurse -Force -Exclude '*.pdb'
+Write-Host "Done: $out\ClickSaver2026.exe" -ForegroundColor Green

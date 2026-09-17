@@ -26,8 +26,7 @@ Needs Visual Studio 2022 (or Build Tools) with the C++ workload, CMake 3.25+ and
 ./build.ps1 -Test    # and run the tests
 ```
 
-The app ends up in `src/ClickSaver2026.App/bin/Release/net10.0-windows/` with the hook DLL next to
-it. It is a 32-bit app, so it needs the x86 .NET 10 Desktop Runtime.
+The runnable app ends up in `out\ClickSaver2026.exe`, with the hook DLL next to it. It is a 32-bit app, so it needs the x86 .NET 10 Desktop Runtime.
 
 ## Using it
 
