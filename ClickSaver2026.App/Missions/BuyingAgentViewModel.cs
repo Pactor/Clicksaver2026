@@ -26,6 +26,9 @@ public sealed class BuyingAgentViewModel : ObservableObject
     private string itemWatch = string.Empty;
     private int maxRolls = 10;
     private int rollsDone;
+    private int replaysSeen;
+    private int listsSeen;
+    private CommandStatus lastStatus;
     private bool running;
     private string status = "Roll a mission at the terminal by hand once, then the agent can repeat it.";
 
@@ -34,6 +37,7 @@ public sealed class BuyingAgentViewModel : ObservableObject
         this.hook = hook;
         this.missions = missions;
         this.hook.CommandResultReceived += this.OnCommandResult;
+        this.hook.MissionRequestedReceived += this.OnMissionRequested;
 
         this.StartCommand = new RelayCommand(this.Start, () => this.CanStart);
         this.StopCommand = new RelayCommand(this.Stop, () => this.Running);
@@ -92,9 +96,27 @@ public sealed class BuyingAgentViewModel : ObservableObject
     {
         if (this.Running && processId == this.targetProcessId)
         {
+            this.listsSeen++;
             this.agent?.Submit(list);
+            this.SetRunningStatus(this.RollsDone);
         }
     }
+
+    // The hook reports a ClickSaver-sourced request only after it actually replayed the client call,
+    // on the client's own thread. Counting these separates "the replay ran" from "the server rolled"
+    // (a fresh mission list) - the two questions a stuck roll needs answered.
+    private void OnMissionRequested(int processId, RequestSource source)
+    {
+        if (this.Running && processId == this.targetProcessId && source == RequestSource.ClickSaver)
+        {
+            this.replaysSeen++;
+            this.SetRunningStatus(this.RollsDone);
+        }
+    }
+
+    private void SetRunningStatus(int n) => this.Status = string.Create(
+        CultureInfo.CurrentCulture,
+        $"Rolling {n} of {this.MaxRolls}...  (replayed {this.replaysSeen}, new lists {this.listsSeen}, last {this.lastStatus})");
 
     private async void Start()
     {
@@ -124,6 +146,9 @@ public sealed class BuyingAgentViewModel : ObservableObject
         this.agent = new BuyingAgent(ct => this.RollAsync(processId, ct), list => this.missions.Matches(list, watch));
         this.Running = true;
         this.RollsDone = 0;
+        this.replaysSeen = 0;
+        this.listsSeen = 0;
+        this.lastStatus = default;
         this.Status = "Rolling...";
 
         BuyingAgentResult? matched = null;
@@ -131,7 +156,7 @@ public sealed class BuyingAgentViewModel : ObservableObject
         {
             BuyingAgentResult result = await this.agent.RunAsync(
                 this.MaxRolls,
-                new Progress<int>(n => { this.RollsDone = n; this.Status = string.Create(CultureInfo.CurrentCulture, $"Rolling {n} of {this.MaxRolls}..."); }),
+                new Progress<int>(n => { this.RollsDone = n; this.SetRunningStatus(n); }),
                 this.cancel.Token);
             this.Status = result.Message;
             if (result.Outcome == BuyingAgentOutcome.Matched)
@@ -198,6 +223,7 @@ public sealed class BuyingAgentViewModel : ObservableObject
     {
         if (this.pendingRolls.TryGetValue(id, out TaskCompletionSource<CommandStatus>? result))
         {
+            this.lastStatus = status;
             result.TrySetResult(status);
         }
     }
