@@ -7,6 +7,8 @@
     <PlatformTarget>x86</PlatformTarget>
     <AssemblyName>ClickSaver2026</AssemblyName>
     <RootNamespace>ClickSaver2026.App</RootNamespace>
+    <!-- The exe/taskbar/title-bar icon (generated from clicksaver2026.png at the repo root). -->
+    <ApplicationIcon>..\clicksaver2026.ico</ApplicationIcon>
     <!-- ThemeMode (Fluent) is still marked experimental. -->
     <NoWarn>$(NoWarn);WPF0001</NoWarn>
 
