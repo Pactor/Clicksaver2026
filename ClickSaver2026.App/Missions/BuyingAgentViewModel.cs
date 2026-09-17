@@ -39,6 +39,9 @@ public sealed class BuyingAgentViewModel : ObservableObject
         this.StopCommand = new RelayCommand(this.Stop, () => this.Running);
     }
 
+    /// <summary>Raised on the UI thread when a roll matches, so the app can alert the user and stop.</summary>
+    public event Action<string>? MatchFound;
+
     public RelayCommand StartCommand { get; }
 
     public RelayCommand StopCommand { get; }
@@ -123,6 +126,7 @@ public sealed class BuyingAgentViewModel : ObservableObject
         this.RollsDone = 0;
         this.Status = "Rolling...";
 
+        BuyingAgentResult? matched = null;
         try
         {
             BuyingAgentResult result = await this.agent.RunAsync(
@@ -130,6 +134,10 @@ public sealed class BuyingAgentViewModel : ObservableObject
                 new Progress<int>(n => { this.RollsDone = n; this.Status = string.Create(CultureInfo.CurrentCulture, $"Rolling {n} of {this.MaxRolls}..."); }),
                 this.cancel.Token);
             this.Status = result.Message;
+            if (result.Outcome == BuyingAgentOutcome.Matched)
+            {
+                matched = result;
+            }
         }
         catch (OperationCanceledException)
         {
@@ -143,6 +151,15 @@ public sealed class BuyingAgentViewModel : ObservableObject
         {
             this.Running = false;
             this.pendingRolls.Clear();
+        }
+
+        if (matched is not null)
+        {
+            // Rolling has already stopped, so the matched mission is still on the terminal. Alert
+            // the user to accept it before rolling again, which would replace it.
+            this.MatchFound?.Invoke(string.Create(
+                CultureInfo.CurrentCulture,
+                $"Found a match for \"{this.ItemWatch}\" on roll {matched.Rolls}.\n\nRolling has stopped. Accept the mission at the terminal now - rolling again replaces it."));
         }
     }
 

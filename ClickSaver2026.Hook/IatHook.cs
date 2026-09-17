@@ -47,6 +47,20 @@ internal static unsafe partial class IatHook
         return original;
     }
 
+    /// <summary>The current value in the first IAT slot for the import, or 0 when nothing imports it.</summary>
+    public static nint Find(string importDll, string importName, bool prefix = false)
+    {
+        foreach (nint module in Modules())
+        {
+            foreach (nint slot in ImportSlots(module, importDll, importName, prefix))
+            {
+                return *(nint*)slot;
+            }
+        }
+
+        return 0;
+    }
+
     /// <summary>Puts <paramref name="original"/> back wherever <paramref name="detour"/> was written.</summary>
     public static void Restore(string importDll, string importName, nint detour, nint original, bool prefix = false)
     {

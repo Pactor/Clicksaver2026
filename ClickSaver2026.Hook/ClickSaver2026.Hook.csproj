@@ -22,4 +22,9 @@
     <IlcOptimizationPreference>Size</IlcOptimizationPreference>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Shared trampoline bytes, verified by the tests; the hook stays free of a Core reference. -->
+    <Compile Include="..\ClickSaver2026.Core\Hook\Trampolines.cs" Link="Trampolines.cs" />
+  </ItemGroup>
+
 </Project>

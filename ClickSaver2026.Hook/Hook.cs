@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
+using ClickSaver2026.Core.Hook; // Trampolines is linked in from Core (no assembly reference)
 
 namespace ClickSaver2026.Hook;
 
@@ -57,7 +58,9 @@ internal static unsafe class Hook
     private static uint requestMessage;
 
     private static nint dataBlockOriginal;
-    private static nint generateOriginal;
+    private static nint generateOriginal;   // the client's real __thiscall N3Msg_GenerateMissions
+    private static nint detourStub;         // __thiscall->__cdecl stub placed in the import slot
+    private static nint replayStub;         // __cdecl->__thiscall stub the app uses to roll
     private static (string Dll, string Name) generateImport;
     private static bool messagesHooked;
     private static bool requestsHooked;
@@ -111,7 +114,7 @@ internal static unsafe class Hook
 
         if (requestsHooked)
         {
-            IatHook.Restore(generateImport.Dll, generateImport.Name, (nint)(delegate* unmanaged[Thiscall]<nint, nint, void>)&GenerateDetour, generateOriginal);
+            IatHook.Restore(generateImport.Dll, generateImport.Name, detourStub, generateOriginal);
             requestsHooked = false;
         }
 
@@ -146,23 +149,49 @@ internal static unsafe class Hook
             messagesHooked = true;
         }
 
-        // Rolling missions is an extra: messages are still forwarded without it.
+        // Rolling missions is an extra: messages are still forwarded without it. The Request call is
+        // __thiscall, which the runtime does not emit correctly as a reverse callback, so it is
+        // hooked through hand-written trampolines rather than a managed __thiscall detour.
         if (!requestsHooked)
         {
             foreach ((string dll, string name) in GenerateMissionsImports)
             {
-                nint original = IatHook.PatchAll(dll, name, (nint)(delegate* unmanaged[Thiscall]<nint, nint, void>)&GenerateDetour);
-                if (original != 0)
+                nint original = IatHook.Find(dll, name);
+                if (original == 0)
                 {
-                    generateOriginal = original;
-                    generateImport = (dll, name);
-                    requestsHooked = true;
+                    continue;
+                }
+
+                nint onGenerate = (nint)(delegate* unmanaged[Cdecl]<nint, nint, void>)&OnGenerate;
+                detourStub = AllocThunk(Trampolines.ThiscallToCdeclDetour(onGenerate, original));
+                replayStub = AllocThunk(Trampolines.CdeclToThiscallReplay(original));
+                if (detourStub == 0 || replayStub == 0)
+                {
                     break;
                 }
+
+                generateOriginal = original;
+                generateImport = (dll, name);
+                IatHook.PatchAll(dll, name, detourStub);
+                requestsHooked = true;
+                break;
             }
         }
 
         return HookStatus.Hooked;
+    }
+
+    private static nint AllocThunk(ReadOnlySpan<byte> code)
+    {
+        nint memory = NativeApi.VirtualAlloc(0, (nuint)code.Length, NativeApi.MemCommitReserve, NativeApi.PageExecuteReadWrite);
+        if (memory == 0)
+        {
+            return 0;
+        }
+
+        code.CopyTo(new Span<byte>((void*)memory, code.Length));
+        NativeApi.FlushInstructionCache(NativeApi.GetCurrentProcess(), memory, (nuint)code.Length);
+        return memory;
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
@@ -186,8 +215,10 @@ internal static unsafe class Hook
         return result;
     }
 
-    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvThiscall)])]
-    private static void GenerateDetour(nint self, nint info)
+    // Called (as __cdecl) by the detour trampoline before the real Request call runs. It only
+    // records and forwards; the trampoline tail-calls the original __thiscall function itself.
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static void OnGenerate(nint self, nint info)
     {
         Interlocked.Increment(ref inFlight);
         try
@@ -207,10 +238,9 @@ internal static unsafe class Hook
         }
         catch
         {
-            // Never let a recording error reach the client; still make the real call.
+            // Never let a recording error reach the client; the real call still runs.
         }
 
-        ((delegate* unmanaged[Thiscall]<nint, nint, void>)generateOriginal)(self, info);
         Interlocked.Decrement(ref inFlight);
     }
 
@@ -259,7 +289,8 @@ internal static unsafe class Hook
 
         fixed (byte* p = info)
         {
-            ((delegate* unmanaged[Thiscall]<nint, nint, void>)generateOriginal)(self, (nint)p);
+            // The replay trampoline puts self in ecx and calls the real __thiscall function.
+            ((delegate* unmanaged[Cdecl]<nint, nint, void>)replayStub)(self, (nint)p);
         }
 
         SendMissionRequested(RequestSource.ClickSaver, info);

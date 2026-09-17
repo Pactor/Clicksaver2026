@@ -4,6 +4,7 @@
     <OutputType>Exe</OutputType>
     <!-- 32-bit, like the app, so the end-to-end test can attach to the 32-bit harness. -->
     <PlatformTarget>x86</PlatformTarget>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <OutDir>$(BuildRoot)Tests\$(Configuration)\</OutDir>
     <TestingPlatformCommandLineArguments>--results-directory "$(BuildRoot)TestResults"</TestingPlatformCommandLineArguments>
     <IsPackable>false</IsPackable>
