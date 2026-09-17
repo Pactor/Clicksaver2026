@@ -181,10 +181,13 @@ public sealed class BuyingAgentViewModel : ObservableObject
         if (matched is not null)
         {
             // Rolling has already stopped, so the matched mission is still on the terminal. Alert
-            // the user to accept it before rolling again, which would replace it.
+            // the user to accept it, naming the actual item that matched (not the whole watch list),
+            // before rolling again would replace it.
+            string? found = matched.Match is { } list ? this.missions.FirstMatch(list, watch) : null;
+            string what = found is null ? "a watched item" : $"\"{found}\"";
             this.MatchFound?.Invoke(string.Create(
                 CultureInfo.CurrentCulture,
-                $"Found a match for \"{this.ItemWatch}\" on roll {matched.Rolls}.\n\nRolling has stopped. Accept the mission at the terminal now - rolling again replaces it."));
+                $"Found {what} on roll {matched.Rolls}.\n\nRolling has stopped. Accept the mission at the terminal now - rolling again replaces it."));
         }
     }
 

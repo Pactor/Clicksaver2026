@@ -88,6 +88,40 @@ public sealed class MissionsViewModel : ObservableObject, IDisposable
         return false;
     }
 
+    /// <summary>
+    /// The first reward-item name or find-item in the list that the watch matches, or null if none.
+    /// Used to tell the user exactly which item stopped the agent, not the whole watch list.
+    /// </summary>
+    public string? FirstMatch(MissionList list, WatchList watch)
+    {
+        if (watch.IsEmpty)
+        {
+            return null;
+        }
+
+        foreach (Mission mission in list.Missions)
+        {
+            foreach (MissionRewardItem reward in mission.Rewards)
+            {
+                if (this.database is { } db)
+                {
+                    string name = db.Resolve(reward).Name;
+                    if (watch.Matches(name))
+                    {
+                        return name;
+                    }
+                }
+            }
+
+            if (mission.FindItem is { } find && watch.Matches(find))
+            {
+                return find;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>Reads a capture file and raises <see cref="CaptureRollLoaded"/> for each roll in it.</summary>
     public int LoadCapture(string path)
     {
