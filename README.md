@@ -84,7 +84,9 @@ which the original ClickSaver had:
 - **Combine filters** - require all of them together, e.g. *reward "anger" **and** in Borealis
   **and** find-person only*.
 - **Watch by reward QL** - roll until any reward item is at least a chosen QL.
-- **Highlight** matching missions on the cards, and sort a roll by best reward QL.
+- **Watch by reward value** - roll until any reward item is worth at least a chosen number of
+  credits (the value is already shown on each item).
+- **Highlight** matching missions on the cards, and sort a roll by best reward QL or value.
 
 ## Tests
 
