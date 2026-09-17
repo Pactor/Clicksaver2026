@@ -1,4 +1,3 @@
-using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO;
 using ClickSaver2026.Core.Capture;
@@ -10,15 +9,15 @@ using Microsoft.Win32;
 
 namespace ClickSaver2026.App.Missions;
 
-/// <summary>The Missions tab: every roll received, newest first, with the reward items resolved.</summary>
+/// <summary>
+/// The Missions tab's game-data and matching. Rolls are fire and forget: each client keeps only its
+/// current roll (on its <see cref="Hook.GameClientRow"/>), so nothing accumulates here.
+/// </summary>
 public sealed class MissionsViewModel : ObservableObject, IDisposable
 {
-    private const int MaxHistory = 100;
-
     private readonly AppSettings settings;
     private readonly IconCache icons = new();
     private GameDatabase? database;
-    private MissionListView? selected;
     private string databaseStatus = string.Empty;
 
     public MissionsViewModel(AppSettings settings)
@@ -38,7 +37,8 @@ public sealed class MissionsViewModel : ObservableObject, IDisposable
         }
     }
 
-    public ObservableCollection<MissionListView> History { get; } = [];
+    /// <summary>Raised when a capture file's roll is loaded, so the app can show it as a client's roll.</summary>
+    public event Action<MissionList, DateTime, string>? CaptureRollLoaded;
 
     public RelayCommand BrowseCommand { get; }
 
@@ -54,29 +54,9 @@ public sealed class MissionsViewModel : ObservableObject, IDisposable
         private set => this.Set(ref this.databaseStatus, value);
     }
 
-    public MissionListView? Selected
-    {
-        get => this.selected;
-        set => this.Set(ref this.selected, value);
-    }
-
-    public string Placeholder => this.History.Count == 0
-        ? "No missions yet. Open a mission terminal in the game and request missions; they show up here."
-        : string.Empty;
-
-    /// <summary>Called on the UI thread for every mission list, live or from a capture.</summary>
-    public void Add(MissionList list, DateTime receivedUtc, string source)
-    {
-        var view = new MissionListView(list, receivedUtc, source, this.database, this.icons);
-        this.History.Insert(0, view);
-        while (this.History.Count > MaxHistory)
-        {
-            this.History.RemoveAt(this.History.Count - 1);
-        }
-
-        this.Selected = view;
-        this.OnPropertyChanged(nameof(this.Placeholder));
-    }
+    /// <summary>Builds the view for one roll, resolving reward items against the game database.</summary>
+    public MissionListView BuildView(MissionList list, DateTime receivedUtc, string source) =>
+        new(list, receivedUtc, source, this.database, this.icons);
 
     /// <summary>
     /// True when any mission in the list has a reward item name, or an item to find, that the
@@ -108,15 +88,16 @@ public sealed class MissionsViewModel : ObservableObject, IDisposable
         return false;
     }
 
-    /// <summary>Shows every mission list in a capture file.</summary>
+    /// <summary>Reads a capture file and raises <see cref="CaptureRollLoaded"/> for each roll in it.</summary>
     public int LoadCapture(string path)
     {
         int lists = 0;
+        string label = Path.GetFileName(path);
         foreach (HookMessage message in CaptureReader.Read(path))
         {
             if (message.Kind == HookMessageKind.IncomingMessage && MissionListParser.TryParse(message.Data) is { } list)
             {
-                this.Add(list, message.TimestampUtc, Path.GetFileName(path));
+                this.CaptureRollLoaded?.Invoke(list, message.TimestampUtc, label);
                 lists++;
             }
         }
@@ -214,15 +195,7 @@ public sealed class MissionsViewModel : ObservableObject, IDisposable
             }
         }
 
-        this.DatabaseStatus = string.Create(CultureInfo.CurrentCulture, $"{opened.ItemCount:N0} items available.");
+        this.DatabaseStatus = string.Create(CultureInfo.CurrentCulture, $"{opened.ItemCount:N0} items available. New rolls will show item names and icons.");
         this.OnPropertyChanged(nameof(this.ClientFolder));
-
-        // Lists received before the folder was known get their names and icons now.
-        var lists = this.History.Reverse().ToList();
-        this.History.Clear();
-        foreach (MissionListView list in lists)
-        {
-            this.Add(list.List, list.ReceivedUtc, list.Source);
-        }
     }
 }

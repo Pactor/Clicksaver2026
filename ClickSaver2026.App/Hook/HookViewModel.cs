@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -207,16 +208,42 @@ public sealed class HookViewModel : ObservableObject, IAsyncDisposable
     public Task<bool> SendRollAsync(int processId, uint id, CancellationToken cancellation) =>
         this.commandServer.SendAsync(processId, HookProtocol.RequestMissionsCommand, id, ReadOnlyMemory<byte>.Empty, cancellation);
 
-    /// <summary>A connected client that can roll missions, or null.</summary>
-    public int? RollableClient =>
-        this.connections.Values.FirstOrDefault(h => h.CanRequestMissions && this.commandServer.CanSend(h.ProcessId)) is { } hello
-            ? hello.ProcessId
-            : null;
+    /// <summary>True when the hook in <paramref name="processId"/> can roll and its command channel is open.</summary>
+    public bool CanRoll(int processId) =>
+        this.commandServer.CanSend(processId) && this.connections.TryGetValue(processId, out HookHello? hello) && hello.CanRequestMissions;
+
+    /// <summary>The client row for <paramref name="processId"/>, creating it if a roll arrives before a scan.</summary>
+    public GameClientRow GetOrAddClient(int processId, string label)
+    {
+        GameClientRow? row = this.Clients.FirstOrDefault(r => r.ProcessId == processId);
+        if (row is null)
+        {
+            row = new GameClientRow(processId) { Title = label };
+            this.Clients.Add(row);
+            this.SelectedClient ??= row;
+        }
+
+        return row;
+    }
 
     public async ValueTask DisposeAsync()
     {
         this.drainTimer.Stop();
         this.scanTimer.Stop();
+
+        // Detach cleanly from every client so we never leave a hooked, subclassed client with no app.
+        foreach (GameClientRow row in this.Clients.Where(r => r.HookLoaded).ToList())
+        {
+            try
+            {
+                await Task.Run(() => HookInjector.Eject(row.ProcessId, this.hookPath)).ConfigureAwait(true);
+            }
+            catch (Exception e) when (e is Win32Exception or InvalidOperationException or ArgumentException or TimeoutException)
+            {
+                // The client may have exited; nothing to detach.
+            }
+        }
+
         await this.server.DisposeAsync().ConfigureAwait(true);
         await this.commandServer.DisposeAsync().ConfigureAwait(true);
         this.SetCapture(false);
@@ -328,7 +355,8 @@ public sealed class HookViewModel : ObservableObject, IAsyncDisposable
                 .Select(window => (window, loaded: IsHookLoaded(window.ProcessId)))
                 .ToList()).ConfigureAwait(true);
 
-            foreach (GameClientRow gone in this.Clients.Where(row => found.All(f => f.window.ProcessId != row.ProcessId)).ToList())
+            // Keep the pseudo "Capture" client (pid 0); only prune real clients that are gone.
+            foreach (GameClientRow gone in this.Clients.Where(row => row.ProcessId != 0 && found.All(f => f.window.ProcessId != row.ProcessId)).ToList())
             {
                 this.Clients.Remove(gone);
             }

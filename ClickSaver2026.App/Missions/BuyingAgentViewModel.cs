@@ -79,7 +79,10 @@ public sealed class BuyingAgentViewModel : ObservableObject
         private set => this.Set(ref this.status, value);
     }
 
-    public bool CanStart => !this.Running && this.hook.RollableClient is not null && !string.IsNullOrWhiteSpace(this.ItemWatch);
+    public bool CanStart =>
+        !this.Running
+        && this.hook.SelectedClient is { CanRoll: true, HasRecording: true }
+        && !string.IsNullOrWhiteSpace(this.ItemWatch);
 
     /// <summary>Feed a mission list the client produced, so a running roll can check it.</summary>
     public void OnMissionList(int processId, MissionList list)
@@ -92,11 +95,19 @@ public sealed class BuyingAgentViewModel : ObservableObject
 
     private async void Start()
     {
-        if (this.hook.RollableClient is not { } processId)
+        if (this.hook.SelectedClient is not { CanRoll: true } client)
         {
-            this.Status = "No game client that can roll missions is attached.";
+            this.Status = "Select an attached client that can roll missions.";
             return;
         }
+
+        if (!client.HasRecording)
+        {
+            this.Status = "Roll a mission at the terminal by hand once on this account first.";
+            return;
+        }
+
+        int processId = client.ProcessId;
 
         var watch = WatchQuery.Parse(this.ItemWatch);
         if (watch.IsEmpty)

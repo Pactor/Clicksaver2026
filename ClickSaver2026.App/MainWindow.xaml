@@ -73,17 +73,24 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
 
-                        <ListBox ItemsSource="{Binding History}" SelectedItem="{Binding Selected}" Margin="0,0,8,0">
+                        <ListBox Margin="0,0,8,0"
+                                 ItemsSource="{Binding DataContext.Hook.Clients, RelativeSource={RelativeSource AncestorType=Window}}"
+                                 SelectedItem="{Binding DataContext.Hook.SelectedClient, RelativeSource={RelativeSource AncestorType=Window}, Mode=TwoWay}">
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <TextBlock Text="{Binding Title}" />
+                                    <StackPanel Margin="0,2">
+                                        <TextBlock Text="{Binding Label}" FontWeight="SemiBold" />
+                                        <TextBlock Text="{Binding RollSummary}" Opacity="0.75" FontSize="12" />
+                                    </StackPanel>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
 
-                        <TextBlock Grid.Column="1" Text="{Binding Placeholder}" TextWrapping="Wrap" Margin="16" Opacity="0.75" />
+                        <TextBlock Grid.Column="1" Margin="16" Opacity="0.75" TextWrapping="Wrap"
+                                   Text="No roll yet. Open a mission terminal in the game and request missions; the latest roll shows here."
+                                   Visibility="{Binding DataContext.Hook.SelectedClient.CurrentRoll, RelativeSource={RelativeSource AncestorType=Window}, Converter={x:Static app:NotNullToCollapsed.Instance}}" />
 
-                        <DockPanel Grid.Column="1" DataContext="{Binding Selected}">
+                        <DockPanel Grid.Column="1" DataContext="{Binding DataContext.Hook.SelectedClient.CurrentRoll, RelativeSource={RelativeSource AncestorType=Window}}">
                             <TextBlock DockPanel.Dock="Top" Text="{Binding Header}" Margin="0,0,0,8" Opacity="0.75" TextTrimming="CharacterEllipsis" />
                             <ScrollViewer VerticalScrollBarVisibility="Auto">
                                 <ItemsControl ItemsSource="{Binding Missions}">

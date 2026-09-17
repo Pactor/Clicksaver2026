@@ -1,3 +1,4 @@
+using ClickSaver2026.App.Missions;
 using ClickSaver2026.Core.Hook;
 
 namespace ClickSaver2026.App.Hook;
@@ -9,13 +10,49 @@ public sealed class GameClientRow(int processId) : ObservableObject
     private HookHello? connection;
     private string? error;
     private bool busy;
+    private MissionListView? currentRoll;
+    private bool hasRecording;
 
     public int ProcessId { get; } = processId;
+
+    /// <summary>The most recent mission roll from this client. Fire and forget: replaced each roll.</summary>
+    public MissionListView? CurrentRoll
+    {
+        get => this.currentRoll;
+        set
+        {
+            if (this.Set(ref this.currentRoll, value))
+            {
+                this.OnPropertyChanged(nameof(this.RollSummary));
+            }
+        }
+    }
+
+    /// <summary>True once the player has rolled here by hand, so the agent has a request to repeat.</summary>
+    public bool HasRecording
+    {
+        get => this.hasRecording;
+        set => this.Set(ref this.hasRecording, value);
+    }
+
+    /// <summary>True when this client's hook can roll missions and its command channel is open.</summary>
+    public bool CanRoll => this.Connection?.CanRequestMissions ?? false;
+
+    public string RollSummary => this.CurrentRoll?.Title ?? "No roll yet";
+
+    /// <summary>A short account label for the client list.</summary>
+    public string Label => string.IsNullOrWhiteSpace(this.Title) ? $"Client {this.ProcessId}" : this.Title;
 
     public string Title
     {
         get => this.title;
-        set => this.Set(ref this.title, value);
+        set
+        {
+            if (this.Set(ref this.title, value))
+            {
+                this.OnPropertyChanged(nameof(this.Label));
+            }
+        }
     }
 
     public bool HookLoaded
@@ -38,6 +75,7 @@ public sealed class GameClientRow(int processId) : ObservableObject
             if (this.Set(ref this.connection, value))
             {
                 this.OnPropertyChanged(nameof(this.State));
+                this.OnPropertyChanged(nameof(this.CanRoll));
             }
         }
     }
