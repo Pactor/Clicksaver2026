@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // The wire format between the hook DLL and the ClickSaver2026 app.
-// Mirrored in src/ClickSaver2026.Core/Hook/HookProtocol.cs - change both together.
+// Mirrored in ClickSaver2026.Core/Hook/HookProtocol.cs - change both together.
 
 #pragma once
 

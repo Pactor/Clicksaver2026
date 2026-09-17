@@ -3,7 +3,7 @@ using System.Buffers.Binary;
 namespace ClickSaver2026.Core.Hook;
 
 /// <summary>
-/// The wire format between the hook DLL and the app. Mirrors src/ClickSaver2026.Hook/protocol.h;
+/// The wire format between the hook DLL and the app. Mirrors ClickSaver2026.Hook/protocol.h;
 /// change both together.
 /// </summary>
 /// <remarks>

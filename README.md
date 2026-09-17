@@ -10,24 +10,34 @@ retail terminal answers; watch lists, alerts and the buying agent are still to c
 
 ## Layout
 
-| Part | What it is |
+Every project sits at the repository root; everything a build produces goes into `Build\`.
+
+| Project | What it is |
 |---|---|
-| `src/ClickSaver2026.Hook` | C++20, 32-bit DLL. Loaded into the client; detours `DataBlockToMessage` in `MessageProtocol.dll` and forwards every decoded message over the pipe `\\.\pipe\ClickSaver2026`. |
-| `src/ClickSaver2026.Core` | C# .NET 10. Pipe server, attaching to clients, capture files, the mission list parser, and item names, icons and playfields read straight from the client's ResourceDatabase. |
-| `src/ClickSaver2026.App` | C# .NET 10 WPF, 32-bit. The window. |
-| `tests/ClickSaver2026.Tests` | xUnit v3, 32-bit. Includes an end-to-end test that attaches the real hook to the harness. |
-| `tests/HookHarness` | A stand-in client: a `MessageProtocol.dll` exporting the same `DataBlockToMessage`, and `HookHost.exe` calling it. |
+| `ClickSaver2026.App` | C# .NET 10 WPF, 32-bit. The window. |
+| `ClickSaver2026.Core` | C# .NET 10. Pipe server, attaching to clients, capture files, the mission list parser, and item names, icons and playfields read straight from the client's ResourceDatabase. |
+| `ClickSaver2026.Hook` | C++20, 32-bit DLL (CMake). Loaded into the client; detours `DataBlockToMessage` in `MessageProtocol.dll` and forwards every decoded message over the pipe `\.\pipe\ClickSaver2026`. |
+| `ClickSaver2026.Tests` | xUnit v3, 32-bit. Includes end-to-end tests that attach the real hook to the harness. |
+| `ClickSaver2026.HookHarness` | C++ (CMake). A stand-in client: a `MessageProtocol.dll` exporting the same `DataBlockToMessage`, and `HookHost.exe` calling it. |
+
+| `Build\` | |
+|---|---|
+| `Release\`, `Debug\` | The runnable app: `ClickSaver2026.exe` with the hook DLL beside it |
+| `Tests\` | Test assemblies |
+| `Harness\` | The stand-in client |
+| `obj\`, `bin\`, `cmake\`, `TestResults\` | Intermediate output |
 
 ## Building
 
 Needs Visual Studio 2022 (or Build Tools) with the C++ workload, CMake 3.25+ and the .NET 10 SDK.
 
 ```powershell
-./build.ps1          # Release
+./build.ps1          # Release, into Build\Release
 ./build.ps1 -Test    # and run the tests
+./build.ps1 -Clean   # delete Build\ first
 ```
 
-The runnable app ends up in `out\ClickSaver2026.exe`, with the hook DLL next to it. It is a 32-bit app, so it needs the x86 .NET 10 Desktop Runtime.
+It is a 32-bit app, so it needs the x86 .NET 10 Desktop Runtime.
 
 ## Using it
 

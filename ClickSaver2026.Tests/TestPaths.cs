@@ -4,12 +4,13 @@ internal static class TestPaths
 {
     public static string RepositoryRoot { get; } = FindRepositoryRoot();
 
-    /// <summary>A file CMake built (build.ps1), or null when it has not been built.</summary>
-    public static string? Built(string project, string file)
-    {
-        string path = Path.Combine(RepositoryRoot, "build", project, "Release", file);
-        return File.Exists(path) ? path : null;
-    }
+    /// <summary>The hook DLL build.ps1 put beside the app, or null when it has not been built.</summary>
+    public static string? Hook => Existing(Path.Combine(RepositoryRoot, "Build", "Release", "ClickSaver2026.Hook.dll"));
+
+    /// <summary>The stand-in client build.ps1 built, or null when it has not been built.</summary>
+    public static string? HookHost => Existing(Path.Combine(RepositoryRoot, "Build", "Harness", "Release", "HookHost.exe"));
+
+    private static string? Existing(string path) => File.Exists(path) ? path : null;
 
     private static string FindRepositoryRoot()
     {

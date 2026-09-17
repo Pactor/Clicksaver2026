@@ -4,6 +4,8 @@
     <OutputType>Exe</OutputType>
     <!-- 32-bit, like the app, so the end-to-end test can attach to the 32-bit harness. -->
     <PlatformTarget>x86</PlatformTarget>
+    <OutDir>$(BuildRoot)Tests\$(Configuration)\</OutDir>
+    <TestingPlatformCommandLineArguments>--results-directory "$(BuildRoot)TestResults"</TestingPlatformCommandLineArguments>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
@@ -17,7 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\ClickSaver2026.Core\ClickSaver2026.Core.csproj" />
+    <ProjectReference Include="..\ClickSaver2026.Core\ClickSaver2026.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

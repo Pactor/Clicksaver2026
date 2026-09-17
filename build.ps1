@@ -1,19 +1,23 @@
 <#
 .SYNOPSIS
-    Builds ClickSaver2026: the 32-bit hook DLL with CMake, then the app and tests with dotnet.
+    Builds ClickSaver2026 into Build\: the 32-bit hook DLL with CMake, then the app and tests.
+.DESCRIPTION
+    The runnable app ends up in Build\<Configuration>\ClickSaver2026.exe with the hook beside it.
 .EXAMPLE
     ./build.ps1
     ./build.ps1 -Configuration Debug -Test
+    ./build.ps1 -Clean
 #>
 param(
     [ValidateSet('Debug', 'Release')]
     [string] $Configuration = 'Release',
-    [switch] $Test
+    [switch] $Test,
+    [switch] $Clean
 )
 
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
-$hookBuild = Join-Path $root 'build/hook'
+$build = Join-Path $root 'Build'
 
 function Invoke-Step([string] $name, [scriptblock] $step) {
     Write-Host "== $name" -ForegroundColor Cyan
@@ -21,23 +25,24 @@ function Invoke-Step([string] $name, [scriptblock] $step) {
     if ($LASTEXITCODE -ne 0) { throw "$name failed with exit code $LASTEXITCODE" }
 }
 
-Invoke-Step 'Configure hook' { cmake -S (Join-Path $root 'src/ClickSaver2026.Hook') -B $hookBuild -A Win32 }
-Invoke-Step 'Build hook' { cmake --build $hookBuild --config $Configuration }
+if ($Clean -and (Test-Path $build)) {
+    Write-Host "== Clean" -ForegroundColor Cyan
+    Remove-Item $build -Recurse -Force
+}
 
-# The stand-in client the end-to-end test attaches to.
-$harnessBuild = Join-Path $root 'build/harness'
-Invoke-Step 'Configure harness' { cmake -S (Join-Path $root 'tests/HookHarness') -B $harnessBuild -A Win32 }
-Invoke-Step 'Build harness' { cmake --build $harnessBuild --config Release }
+$hookTree = Join-Path $build 'cmake/hook'
+Invoke-Step 'Configure hook' { cmake -S (Join-Path $root 'ClickSaver2026.Hook') -B $hookTree -A Win32 "-DCLICKSAVER_OUTPUT_DIR=$build" }
+Invoke-Step 'Build hook' { cmake --build $hookTree --config $Configuration }
+
+# The stand-in client the end-to-end tests attach to.
+$harnessTree = Join-Path $build 'cmake/harness'
+Invoke-Step 'Configure harness' { cmake -S (Join-Path $root 'ClickSaver2026.HookHarness') -B $harnessTree -A Win32 "-DCLICKSAVER_OUTPUT_DIR=$(Join-Path $build 'Harness')" }
+Invoke-Step 'Build harness' { cmake --build $harnessTree --config Release }
+
 Invoke-Step 'Build app' { dotnet build (Join-Path $root 'ClickSaver2026.slnx') -c $Configuration }
 
 if ($Test) {
     Invoke-Step 'Test' { dotnet test --solution (Join-Path $root 'ClickSaver2026.slnx') -c $Configuration --no-build }
 }
 
-# Everything needed to run, in one easy place: out\ClickSaver2026.exe
-$built = Join-Path $root "src/ClickSaver2026.App/bin/$Configuration/net10.0-windows"
-$out = Join-Path $root 'out'
-New-Item -ItemType Directory -Force $out | Out-Null
-Get-ChildItem $out -File | Where-Object Name -ne 'settings.json' | Remove-Item -Force -ErrorAction SilentlyContinue
-Copy-Item (Join-Path $built '*') $out -Recurse -Force -Exclude '*.pdb'
-Write-Host "Done: $out\ClickSaver2026.exe" -ForegroundColor Green
+Write-Host "Done: $(Join-Path $build "$Configuration\ClickSaver2026.exe")" -ForegroundColor Green

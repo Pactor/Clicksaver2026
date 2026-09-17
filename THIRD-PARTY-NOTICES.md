@@ -13,7 +13,7 @@ ClickSaver was released under the GNU General Public License version 2 or later.
 
 ## Microsoft Detours 4.0.1
 
-Vendored in `src/ClickSaver2026.Hook/external/detours` (the files the x86 hook needs).
+Vendored in `ClickSaver2026.Hook/external/detours` (the files the x86 hook needs).
 https://github.com/microsoft/Detours
 
 ```

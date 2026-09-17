@@ -7,7 +7,7 @@ using ClickSaver2026.Core.Missions;
 namespace ClickSaver2026.Tests;
 
 /// <summary>
-/// Attaches the real hook to HookHost.exe, the stand-in client from tests/HookHarness, and
+/// Attaches the real hook to HookHost.exe, the stand-in client from ClickSaver2026.HookHarness, and
 /// checks messages arrive and the host keeps working after detaching.
 /// </summary>
 public sealed class HookEndToEndTests
@@ -87,8 +87,8 @@ public sealed class HookEndToEndTests
 
     private static (string Hook, string Host) BuiltHarness()
     {
-        string? hook = TestPaths.Built("hook", HookInjector.HookFileName);
-        string? host = TestPaths.Built("harness", "HookHost.exe");
+        string? hook = TestPaths.Hook;
+        string? host = TestPaths.HookHost;
         Assert.SkipWhen(hook is null || host is null, "Build the hook and the harness first (build.ps1).");
         Assert.SkipWhen(Environment.Is64BitProcess, "Attaching needs a 32-bit test process.");
         return (hook, host);

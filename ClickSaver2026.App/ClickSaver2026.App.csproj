@@ -10,20 +10,16 @@
     <!-- ThemeMode (Fluent) is still marked experimental. -->
     <NoWarn>$(NoWarn);WPF0001</NoWarn>
 
-    <HookDll>$(MSBuildThisFileDirectory)..\..\build\hook\$(Configuration)\ClickSaver2026.Hook.dll</HookDll>
+    <!-- The runnable app: Build\Release\ClickSaver2026.exe. CMake puts the hook DLL beside it. -->
+    <OutDir>$(BuildRoot)$(Configuration)\</OutDir>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\ClickSaver2026.Core\ClickSaver2026.Core.csproj" />
   </ItemGroup>
 
-  <!-- The hook is built by CMake (build.ps1 does both); copy it next to the exe when present. -->
-  <ItemGroup Condition="Exists('$(HookDll)')">
-    <None Include="$(HookDll)" Link="ClickSaver2026.Hook.dll" CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
-
-  <Target Name="ReportMissingHook" BeforeTargets="Build" Condition="!Exists('$(HookDll)')">
-    <Message Importance="high" Text="ClickSaver2026.Hook.dll not found at $(HookDll) - run build.ps1 to build the hook first." />
+  <Target Name="ReportMissingHook" AfterTargets="Build" Condition="!Exists('$(OutDir)ClickSaver2026.Hook.dll')">
+    <Message Importance="high" Text="ClickSaver2026.Hook.dll is not in $(OutDir) yet - run build.ps1 to build the hook." />
   </Target>
 
 </Project>

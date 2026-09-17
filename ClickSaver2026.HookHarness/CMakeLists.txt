@@ -13,6 +13,9 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
+set(CLICKSAVER_OUTPUT_DIR "${CMAKE_BINARY_DIR}" CACHE PATH "Where Release\ and Debug\ outputs go")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CLICKSAVER_OUTPUT_DIR}/$<CONFIG>")
+
 add_library(MessageProtocol SHARED MessageProtocol.cpp)
 target_compile_options(MessageProtocol PRIVATE /W4 /WX /permissive-)
 

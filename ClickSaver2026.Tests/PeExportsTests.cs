@@ -28,7 +28,7 @@ public sealed class PeExportsTests
     [Fact]
     public void BuiltHookExportsShutdown()
     {
-        string? hook = TestPaths.Built("hook", HookInjector.HookFileName);
+        string? hook = TestPaths.Hook;
         Assert.SkipWhen(hook is null, "The hook has not been built (run build.ps1).");
 
         Assert.NotEqual(0u, PeExports.GetExportRva(hook, HookInjector.ShutdownExport));

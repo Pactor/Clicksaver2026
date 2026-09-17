@@ -23,7 +23,14 @@ add_library(detours STATIC
 target_include_directories(detours PUBLIC external/detours)
 target_compile_definitions(detours PRIVATE WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00)
 
+# build.ps1 points this at Build\ so the DLL lands beside the app in Build\<Config>\.
+set(CLICKSAVER_OUTPUT_DIR "${CMAKE_BINARY_DIR}" CACHE PATH "Where Release\ and Debug\ outputs go")
+
 add_library(ClickSaver2026.Hook SHARED hook.cpp hook.def)
+set_target_properties(ClickSaver2026.Hook PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CLICKSAVER_OUTPUT_DIR}/$<CONFIG>"
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>"
+)
 target_link_libraries(ClickSaver2026.Hook PRIVATE detours)
 target_compile_definitions(ClickSaver2026.Hook PRIVATE UNICODE _UNICODE _WIN32_WINNT=0x0A00)
 target_compile_options(ClickSaver2026.Hook PRIVATE /W4 /WX /permissive- /utf-8 /guard:cf)

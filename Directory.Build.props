@@ -11,4 +11,17 @@
     <Version>0.1.0</Version>
     <Copyright>GPL-3.0-or-later</Copyright>
   </PropertyGroup>
+
+  <!-- Everything a build produces goes under Build\ at the repository root:
+         Build\Release\ (or Debug)   the runnable app, with the hook DLL beside it
+         Build\Tests\                test assemblies
+         Build\Harness\              the stand-in client for the hook tests
+         Build\obj\, Build\bin\      intermediate and library output
+         Build\cmake\                CMake build trees
+         Build\TestResults\          test run results -->
+  <PropertyGroup>
+    <BuildRoot>$(MSBuildThisFileDirectory)Build\</BuildRoot>
+    <BaseIntermediateOutputPath>$(BuildRoot)obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
+    <BaseOutputPath>$(BuildRoot)bin\$(MSBuildProjectName)\</BaseOutputPath>
+  </PropertyGroup>
 </Project>
