@@ -20,11 +20,18 @@ commits go out under their name with no Claude attribution.
 - **Tests.** 60 pass (`build.ps1 -Test`). Includes trampoline byte tests, the pipe/command servers,
   the mission parser vs. retail captures, and loading the real hook into a stand-in client.
 
-## THE CURRENT PROBLEM — auto-roll (buying agent)
+## Auto-roll (buying agent) — WORKING (validated live 2026-09-17)
 
-Rolling missions automatically (repeat the player's last Request until a watched item appears) is
-the open item. The mechanism was wrong for a long time; here is the corrected model and where it
-stands.
+Rolling missions automatically (repeat the player's last Request until a watched item appears) now
+works. Validated on the live client: the agent resends the player's last request at the correct
+difficulty (the slider tick byte at request offset 0x1E is preserved), the client's own `Send`
+stamps a fresh sequence number into the buffer each roll, and the server returns fresh missions —
+no mouse, no UI thread, no crash. The long history below is kept for context.
+
+Note: QL is inherently random per roll (a spread around the slider's level; high QLs are rare), so
+the agent rolls until a watched **item name** appears. The user declined a "reward QL >= N" watch.
+The reward item's own QL (`item.Reward.Quality`) is shown on each card and is separate from the
+mission's difficulty QL (`mission.Quality`) - both are correct.
 
 ### What rolling actually is (ground truth, from ClickSaver 2.5.3's ReadMe)
 The **original** ClickSaver buying agent did **not** call any internal function. It **simulated
@@ -38,7 +45,7 @@ nothing useful (its name/role is the incoming mission path, not the outgoing req
 attempts, both removed: (a) replay from the `DataBlockToMessage` hook — refused, wrong thread;
 (b) replay pumped from a `PeekMessageA` hook on the UI thread — "says rolling but does nothing."
 
-### Current mechanism — network-level replay (needs live verification)
+### Mechanism — network-level replay (validated live)
 Roll by **resending the exact outgoing request bytes** the client already sends when the player
 clicks Request. No mouse, no UI thread, no client-UI reentrancy. Verified against the retail
 binaries with `dumpbin`:
@@ -57,13 +64,17 @@ Flow in `Hook.cs`:
    `ThiscallToCdeclDetour2` 2-arg trampoline) fires on the next send on that thread, snapshots the
    message bytes (`SnapshotMessage` → finds the object's `CreateDataBlock` in its vtable, calls it +
    `DataBlockSizeGet`), and stores `(Connection*, id, bytes)`. The real send still happens.
-3. A roll command calls `DoRoll` **on the command thread**: resends the bytes through the exported
-   raw `Send` (`CdeclToThiscallCall3` trampoline). Returns `Done`.
-Capability `CanRequestMissions` is now gated on the whole chain (`RollReady`): Request hook + Send
-hook + raw send + serialisers all resolved. New trampolines are unit-tested (`TrampolineTests`).
+3. A roll command calls `DoRoll` **on the command thread**: resends a **clone** of the bytes through
+   the exported raw `Send` (`CdeclToThiscallCall3` trampoline). The clone matters — the client's
+   `Send` stamps a per-message sequence number into the buffer in place; cloning keeps the capture
+   pristine so every roll is deterministic. Returns `Done`.
+Capability `CanRequestMissions` is gated on the whole chain (`RollReady`): Request hook + Send hook +
+raw send + serialisers all resolved. New trampolines are unit-tested (`TrampolineTests`).
 
-### What to check next (the app now shows a diagnostic)
-The buying-agent status reads `Rolling N of M... (replayed X, new lists Y, last Z)`:
+Live log confirmed (byte 0x1E = slider tick, preserved across rolls; header seq `0023..0028`
+incremented by the client each roll). The temporary byte-dump diagnostic has been removed.
+
+### If it regresses, the buying-agent status localises it — `Rolling N of M... (replayed X, new lists Y, last Z)`:
 - **last = NothingRecorded** → capture missed: the request send did not come through
   `Connection_t::Send` on the armed thread (maybe queued/async). Adapt capture (e.g. capture at the
   raw exported `Send` via an inline detour, or widen the arm window).

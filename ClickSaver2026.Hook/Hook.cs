@@ -496,7 +496,10 @@ internal static unsafe class Hook
 
             connection = sendConnection;
             messageId = sendMessageId;
-            bytes = sendBytes; // an immutable snapshot; a new capture replaces the array wholesale
+
+            // Send stamps a sequence number into the buffer in place, so resend from a fresh copy to
+            // keep the capture pristine (and every roll deterministic).
+            bytes = (byte[])sendBytes.Clone();
         }
 
         if (connection == 0 || sendRawStub == 0)
