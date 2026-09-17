@@ -32,7 +32,7 @@ public sealed class HookViewModel : ObservableObject, IAsyncDisposable
     private long totalMessages;
     private long legacyMatches;
     private long dropped;
-    private bool autoAttach = true;
+    private bool autoAttach;
     private bool scanning;
     private string status = "Starting...";
     private GameClientRow? selectedClient;
@@ -40,8 +40,9 @@ public sealed class HookViewModel : ObservableObject, IAsyncDisposable
     private string captureFolder = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ClickSaver2026", "Captures");
 
-    public HookViewModel()
+    public HookViewModel(bool autoAttach = true)
     {
+        this.autoAttach = autoAttach;
         this.server.MessageReceived += this.OnMessage;
         this.server.ClientConnected += hello => this.connections[hello.ProcessId] = hello;
         this.server.ClientDisconnected += (hello, error) => this.connections.TryRemove(hello.ProcessId, out HookHello? _);
@@ -62,6 +63,9 @@ public sealed class HookViewModel : ObservableObject, IAsyncDisposable
             ? "Waiting for game clients."
             : $"{HookInjector.HookFileName} is missing next to ClickSaver2026.exe - build it with build.ps1.";
     }
+
+    /// <summary>A mission terminal answered. Raised on the UI thread.</summary>
+    public event Action<MissionList, HookMessage>? MissionListReceived;
 
     public ObservableCollection<GameClientRow> Clients { get; } = [];
 
@@ -208,6 +212,11 @@ public sealed class HookViewModel : ObservableObject, IAsyncDisposable
 
         bool legacy = message.Kind == HookMessageKind.IncomingMessage && LegacyMissionSignature.Matches(message.Data);
         Interlocked.Increment(ref this.totalMessages);
+
+        if (message.Kind == HookMessageKind.IncomingMessage && MissionListParser.TryParse(message.Data) is { } missions)
+        {
+            this.Post(() => this.MissionListReceived?.Invoke(missions, message));
+        }
         if (legacy)
         {
             Interlocked.Increment(ref this.legacyMatches);

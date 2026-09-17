@@ -1,22 +1,28 @@
 using System.ComponentModel;
 using System.Windows;
-using ClickSaver2026.App.Hook;
 
 namespace ClickSaver2026.App;
 
 public partial class MainWindow : Window
 {
-    private readonly HookViewModel hook = new();
+    private bool disposed;
 
-    public MainWindow()
+    public MainWindow(MainViewModel model)
     {
+        this.Model = model;
         this.InitializeComponent();
-        this.DataContext = this.hook;
+        this.DataContext = model;
     }
+
+    public MainViewModel Model { get; }
 
     protected override async void OnClosing(CancelEventArgs e)
     {
         base.OnClosing(e);
-        await this.hook.DisposeAsync().ConfigureAwait(true);
+        if (!this.disposed)
+        {
+            this.disposed = true;
+            await this.Model.DisposeAsync().ConfigureAwait(true);
+        }
     }
 }

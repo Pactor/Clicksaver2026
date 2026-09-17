@@ -3,24 +3,107 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:hook="clr-namespace:ClickSaver2026.App.Hook"
+        xmlns:app="clr-namespace:ClickSaver2026.App"
         mc:Ignorable="d"
-        d:DataContext="{d:DesignInstance hook:HookViewModel}"
-        Title="ClickSaver2026" Width="1000" Height="760" MinWidth="640" MinHeight="480">
+        d:DataContext="{d:DesignInstance app:MainViewModel}"
+        Title="ClickSaver2026" Width="1000" Height="820" MinWidth="640" MinHeight="480">
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="Visible" />
+    </Window.Resources>
+
     <DockPanel>
         <StatusBar DockPanel.Dock="Bottom">
             <StatusBarItem>
-                <TextBlock Text="{Binding Status}" TextTrimming="CharacterEllipsis" />
+                <TextBlock Text="{Binding Hook.Status}" TextTrimming="CharacterEllipsis" />
             </StatusBarItem>
         </StatusBar>
 
         <TabControl Margin="8">
-            <TabItem Header="Missions">
-                <TextBlock Margin="16" TextWrapping="Wrap"
-                           Text="The mission list arrives once the parser is rebuilt from live captures. Use the Hook tab to attach to the client and record mission messages." />
+            <TabItem Header="Missions" DataContext="{Binding Missions}">
+                <DockPanel Margin="8">
+                    <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="AO folder:" VerticalAlignment="Center" Margin="0,0,8,0" />
+                        <TextBlock Grid.Column="1" Text="{Binding ClientFolder}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                        <Button Grid.Column="2" Content="Detect" Command="{Binding DetectCommand}" Margin="8,0,0,0" />
+                        <Button Grid.Column="3" Content="Browse..." Command="{Binding BrowseCommand}" Margin="8,0,0,0" />
+                        <Button Grid.Column="4" Content="Open capture..." Command="{Binding OpenCaptureCommand}" Margin="8,0,0,0" />
+                        <TextBlock Grid.Row="1" Grid.ColumnSpan="5" Text="{Binding DatabaseStatus}" Margin="0,4,0,0" Opacity="0.75" />
+                    </Grid>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="220" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <ListBox ItemsSource="{Binding History}" SelectedItem="{Binding Selected}" Margin="0,0,8,0">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Title}" />
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+
+                        <TextBlock Grid.Column="1" Text="{Binding Placeholder}" TextWrapping="Wrap" Margin="16" Opacity="0.75" />
+
+                        <DockPanel Grid.Column="1" DataContext="{Binding Selected}">
+                            <TextBlock DockPanel.Dock="Top" Text="{Binding Header}" Margin="0,0,0,8" Opacity="0.75" TextTrimming="CharacterEllipsis" />
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <ItemsControl ItemsSource="{Binding Missions}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,8"
+                                                    BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                                                    Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                                                    ToolTip="{Binding Description}">
+                                                <StackPanel>
+                                                    <DockPanel>
+                                                        <TextBlock DockPanel.Dock="Right" Text="{Binding Money}" VerticalAlignment="Center" />
+                                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="15" />
+                                                    </DockPanel>
+                                                    <TextBlock Text="{Binding Location}" Opacity="0.8" Margin="0,2,0,6" />
+                                                    <ItemsControl ItemsSource="{Binding Rewards}">
+                                                        <ItemsControl.ItemTemplate>
+                                                            <DataTemplate>
+                                                                <DockPanel Margin="0,4,0,0">
+                                                                    <Border DockPanel.Dock="Left" Width="52" Height="52" Margin="0,0,10,0" CornerRadius="4"
+                                                                            Background="{DynamicResource ControlFillColorSecondaryBrush}">
+                                                                        <Image Source="{Binding Icon}" Width="48" Height="48" Stretch="Uniform"
+                                                                               RenderOptions.BitmapScalingMode="NearestNeighbor" />
+                                                                    </Border>
+                                                                    <StackPanel VerticalAlignment="Center">
+                                                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="14" TextWrapping="Wrap" />
+                                                                        <TextBlock Text="{Binding Details}" Opacity="0.8" />
+                                                                    </StackPanel>
+                                                                </DockPanel>
+                                                            </DataTemplate>
+                                                        </ItemsControl.ItemTemplate>
+                                                    </ItemsControl>
+                                                    <TextBlock Text="{Binding FindItem}" Margin="0,6,0,0" Opacity="0.8"
+                                                               Visibility="{Binding FindItem, Converter={x:Static app:NullToCollapsed.Instance}}" />
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </DockPanel>
+                    </Grid>
+                </DockPanel>
             </TabItem>
 
-            <TabItem Header="Hook">
+            <TabItem Header="Hook" DataContext="{Binding Hook}">
                 <Grid Margin="8">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
