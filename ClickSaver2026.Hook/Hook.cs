@@ -34,7 +34,6 @@ internal static unsafe class Hook
         (MessageProtocolDll, "?N3Msg_GenerateMissions@N3InterfaceModule_t@@QAEXPAVMissionGenerateInfo_t@@@Z"),
     ];
 
-    private const string GameWindowClass = "Anarchy client";
     private const long MaxQueuedBytes = 64 * 1024 * 1024;
 
     // A plain object because the queue uses Monitor.Wait/Pulse, not the Lock type.
@@ -55,7 +54,6 @@ internal static unsafe class Hook
     private static readonly byte[] pendingInfo = new byte[Wire.MissionGenerateInfoSize];
 
     private static string pipePath = string.Empty;
-    private static uint requestMessage;
 
     private static nint dataBlockOriginal;
     private static nint generateOriginal;   // the client's real __thiscall N3Msg_GenerateMissions
@@ -71,10 +69,6 @@ internal static unsafe class Hook
     private static int inFlight;
     private static bool started;
 
-    private static nint gameWindow;
-    private static nint originalWndProc;
-    private static nint foundWindow;
-
     // Called by the app right after LoadLibrary, and again to re-attach. Installs the hooks and,
     // the first time, starts the pipe threads.
     [UnmanagedCallersOnly(EntryPoint = "ClickSaverStart")]
@@ -87,7 +81,6 @@ internal static unsafe class Hook
         if (!started)
         {
             pipePath = PipePath();
-            requestMessage = NativeApi.RegisterWindowMessageW("ClickSaver2026.RequestMissions");
             new Thread(WriterLoop) { IsBackground = true }.Start();
             new Thread(CommandLoop) { IsBackground = true }.Start();
             started = true;
@@ -101,16 +94,6 @@ internal static unsafe class Hook
     public static uint ClickSaverShutdown(nint _)
     {
         active = false;
-
-        if (originalWndProc != 0)
-        {
-            // Only unhook the window if nothing has subclassed it on top of us since.
-            if (NativeApi.GetWindowLongPtr(gameWindow, NativeApi.GwlpWndProc) == (nint)(delegate* unmanaged[Stdcall]<nint, uint, nint, nint, nint>)&WindowProc)
-            {
-                NativeApi.SetWindowLongPtr(gameWindow, NativeApi.GwlpWndProc, originalWndProc);
-                originalWndProc = 0;
-            }
-        }
 
         if (requestsHooked)
         {
@@ -211,6 +194,21 @@ internal static unsafe class Hook
         }
 
         nint result = ((delegate* unmanaged[Cdecl]<uint, nint, nint>)dataBlockOriginal)(size, data);
+
+        // This runs on the client's own message thread, which is where a roll must be issued from,
+        // so a pending roll is replayed here rather than by subclassing the game window.
+        if (requestsHooked && Volatile.Read(ref havePending))
+        {
+            try
+            {
+                RunPendingRequest();
+            }
+            catch
+            {
+                // A failed roll must never take the client down.
+            }
+        }
+
         Interlocked.Decrement(ref inFlight);
         return result;
     }
@@ -283,7 +281,9 @@ internal static unsafe class Hook
 
         if (self == 0 || thread != NativeApi.GetCurrentThreadId())
         {
-            SendCommandResult(id, CommandStatus.NothingRecorded);
+            // The message thread is not the thread the Request button ran on, so we cannot safely
+            // call into the client from here. Reported distinctly from "nothing recorded".
+            SendCommandResult(id, CommandStatus.NotSupported);
             return;
         }
 
@@ -295,63 +295,6 @@ internal static unsafe class Hook
 
         SendMissionRequested(RequestSource.ClickSaver, info);
         SendCommandResult(id, CommandStatus.Done);
-    }
-
-    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
-    private static nint WindowProc(nint window, uint message, nint wParam, nint lParam)
-    {
-        if (message == requestMessage && requestMessage != 0)
-        {
-            Interlocked.Increment(ref inFlight);
-            try
-            {
-                RunPendingRequest();
-            }
-            catch
-            {
-                // A failed replay must not take the game's window thread down.
-            }
-
-            Interlocked.Decrement(ref inFlight);
-            return 0;
-        }
-
-        return NativeApi.CallWindowProc(originalWndProc, window, message, wParam, lParam);
-    }
-
-    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
-    private static int FindWindowCallback(nint window, nint _)
-    {
-        var className = new char[64];
-        NativeApi.GetWindowThreadProcessId(window, out uint processId);
-        if (processId == NativeApi.GetCurrentProcessId()
-            && NativeApi.GetClassNameW(window, className, className.Length) != 0
-            && new string(className, 0, IndexOfZero(className)) == GameWindowClass)
-        {
-            foundWindow = window;
-            return 0;
-        }
-
-        return 1;
-    }
-
-    private static bool EnsureWindowHooked()
-    {
-        if (originalWndProc != 0)
-        {
-            return true;
-        }
-
-        foundWindow = 0;
-        NativeApi.EnumWindows((delegate* unmanaged[Stdcall]<nint, nint, int>)&FindWindowCallback, 0);
-        if (foundWindow == 0)
-        {
-            return false;
-        }
-
-        gameWindow = foundWindow;
-        originalWndProc = NativeApi.SetWindowLongPtr(gameWindow, NativeApi.GwlpWndProc, (nint)(delegate* unmanaged[Stdcall]<nint, uint, nint, nint, nint>)&WindowProc);
-        return originalWndProc != 0;
     }
 
     private static void HandleCommand(uint kind, uint id, ReadOnlySpan<byte> payload)
@@ -392,15 +335,7 @@ internal static unsafe class Hook
             havePending = true;
         }
 
-        if (!EnsureWindowHooked() || !NativeApi.PostMessage(gameWindow, requestMessage, 0, 0))
-        {
-            lock (RequestLock)
-            {
-                havePending = false;
-            }
-
-            SendCommandResult(id, CommandStatus.WindowNotFound);
-        }
+        // The roll itself runs in the DataBlockToMessage hook, on the client's own message thread.
     }
 
     // ---- Frames to the app ----
@@ -624,11 +559,5 @@ internal static unsafe class Hook
         uint length = NativeApi.GetEnvironmentVariableW(Wire.PipeNameVariable, buffer, (uint)buffer.Length);
         string name = length != 0 && length < buffer.Length ? new string(buffer, 0, (int)length) : Wire.DefaultPipeName;
         return @"\\.\pipe\" + name;
-    }
-
-    private static int IndexOfZero(char[] text)
-    {
-        int index = Array.IndexOf(text, '\0');
-        return index < 0 ? text.Length : index;
     }
 }

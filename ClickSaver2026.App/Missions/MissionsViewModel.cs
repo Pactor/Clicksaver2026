@@ -62,7 +62,7 @@ public sealed class MissionsViewModel : ObservableObject, IDisposable
     /// True when any mission in the list has a reward item name, or an item to find, that the
     /// watch matches. Reward names come from the game database when it is set.
     /// </summary>
-    public bool Matches(MissionList list, WatchQuery watch)
+    public bool Matches(MissionList list, WatchList watch)
     {
         if (watch.IsEmpty)
         {

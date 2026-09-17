@@ -112,10 +112,10 @@ public sealed class BuyingAgentViewModel : ObservableObject
 
         int processId = client.ProcessId;
 
-        var watch = WatchQuery.Parse(this.ItemWatch);
+        var watch = WatchList.Parse(this.ItemWatch);
         if (watch.IsEmpty)
         {
-            this.Status = "Enter one or more item names to watch for.";
+            this.Status = "Enter one or more item names to watch for (one per line).";
             return;
         }
 
