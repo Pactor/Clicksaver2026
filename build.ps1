@@ -1,8 +1,10 @@
 <#
 .SYNOPSIS
-    Builds ClickSaver2026 into Build\: the 32-bit hook DLL with CMake, then the app and tests.
+    Builds ClickSaver2026 into Build\: the native AOT projects (32-bit) and the WPF app and tests.
 .DESCRIPTION
     The runnable app ends up in Build\<Configuration>\ClickSaver2026.exe with the hook beside it.
+    The hook and the test harness are C# compiled with Native AOT to native 32-bit binaries, so the
+    Visual Studio C++ build tools must be installed (Native AOT uses the Microsoft linker).
 .EXAMPLE
     ./build.ps1
     ./build.ps1 -Configuration Debug -Test
@@ -19,6 +21,10 @@ $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $build = Join-Path $root 'Build'
 
+# Native AOT invokes the Microsoft linker, which finds the toolset through vswhere.
+$installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer"
+if (Test-Path $installer) { $env:PATH = "$installer;$env:PATH" }
+
 function Invoke-Step([string] $name, [scriptblock] $step) {
     Write-Host "== $name" -ForegroundColor Cyan
     & $step
@@ -30,14 +36,12 @@ if ($Clean -and (Test-Path $build)) {
     Remove-Item $build -Recurse -Force
 }
 
-$hookTree = Join-Path $build 'cmake/hook'
-Invoke-Step 'Configure hook' { cmake -S (Join-Path $root 'ClickSaver2026.Hook') -B $hookTree -A Win32 "-DCLICKSAVER_OUTPUT_DIR=$build" }
-Invoke-Step 'Build hook' { cmake --build $hookTree --config $Configuration }
+# The hook, published straight into the app's output folder so it ships beside the exe.
+Invoke-Step 'Publish hook' { dotnet publish (Join-Path $root 'ClickSaver2026.Hook') -c $Configuration -o (Join-Path $build $Configuration) }
 
-# The stand-in client the end-to-end tests attach to.
-$harnessTree = Join-Path $build 'cmake/harness'
-Invoke-Step 'Configure harness' { cmake -S (Join-Path $root 'ClickSaver2026.HookHarness') -B $harnessTree -A Win32 "-DCLICKSAVER_OUTPUT_DIR=$(Join-Path $build 'Harness')" }
-Invoke-Step 'Build harness' { cmake --build $harnessTree --config Release }
+# The stand-in client the hook tests attach to. MessageProtocol first: HookHost links its import lib.
+Invoke-Step 'Publish MessageProtocol' { dotnet publish (Join-Path $root 'ClickSaver2026.HookHarness\MessageProtocol') -c Release -o (Join-Path $build 'Harness') }
+Invoke-Step 'Publish HookHost' { dotnet publish (Join-Path $root 'ClickSaver2026.HookHarness\HookHost') -c Release -o (Join-Path $build 'Harness') }
 
 Invoke-Step 'Build app' { dotnet build (Join-Path $root 'ClickSaver2026.slnx') -c $Configuration }
 

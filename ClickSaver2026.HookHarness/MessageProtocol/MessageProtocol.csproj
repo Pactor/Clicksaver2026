@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Stand-in for the client's MessageProtocol.dll, for the hook tests. Exports DataBlockToMessage
+    under the client's exact decorated name, so the real hook can hook it the same way it hooks the
+    game. Native AOT, 32-bit, no runtime. (The thiscall N3Msg_GenerateMissions cannot be exported
+    from Native AOT, so the mission-roll hook is exercised against the live client instead.)
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x86</RuntimeIdentifier>
+    <OutputType>Library</OutputType>
+    <NativeLib>Shared</NativeLib>
+    <PublishAot>true</PublishAot>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>MessageProtocol</AssemblyName>
+    <RootNamespace>MessageProtocol</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      Export DataBlockToMessage under the client's decorated name. The linker's /EXPORT: option
+      treats the first '@' as an ordinal marker, so this ends up as "?DataBlockToMessage" - a prefix
+      of the game's full "?DataBlockToMessage@@...", which the hook matches by prefix.
+    -->
+    <LinkerArg Include="/EXPORT:?DataBlockToMessage@@YAPAVMessage_t@@IPAX@Z=DataBlockToMessage" />
+  </ItemGroup>
+
+</Project>

@@ -25,11 +25,11 @@ public sealed class HookServerTests
         await using (var client = new NamedPipeClientStream(".", pipeName, PipeDirection.Out))
         {
             await client.ConnectAsync(TestContext.Current.CancellationToken).WaitAsync(Timeout, TestContext.Current.CancellationToken);
-            await client.WriteAsync(HookProtocol.EncodeHello(new HookHello(HookStatus.Hooked, 1234, 1)), TestContext.Current.CancellationToken);
+            await client.WriteAsync(HookProtocol.EncodeHello(new HookHello(HookStatus.Hooked, 1234, 2, HookCapabilities.CanRequestMissions)), TestContext.Current.CancellationToken);
             await client.WriteAsync(HookProtocol.EncodeFrame(HookMessageKind.IncomingMessage, time, [0xDE, 0xAD]), TestContext.Current.CancellationToken);
 
             HookHello hello = await connected.Task.WaitAsync(Timeout, TestContext.Current.CancellationToken);
-            Assert.Equal(new HookHello(HookStatus.Hooked, 1234, 1), hello);
+            Assert.Equal(new HookHello(HookStatus.Hooked, 1234, 2, HookCapabilities.CanRequestMissions), hello);
 
             HookMessage message = await received.Task.WaitAsync(Timeout, TestContext.Current.CancellationToken);
             Assert.Equal(1234, message.ProcessId);

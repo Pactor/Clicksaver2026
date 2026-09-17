@@ -10,26 +10,28 @@ retail terminal answers; watch lists, alerts and the buying agent are still to c
 
 ## Layout
 
-Every project sits at the repository root; everything a build produces goes into `Build\`.
+Every project sits at the repository root; everything a build produces goes into `Build\`. It is all
+C#: the hook and the test harness are compiled with .NET Native AOT to native 32-bit binaries.
 
 | Project | What it is |
 |---|---|
 | `ClickSaver2026.App` | C# .NET 10 WPF, 32-bit. The window. |
 | `ClickSaver2026.Core` | C# .NET 10. Pipe server, attaching to clients, capture files, the mission list parser, and item names, icons and playfields read straight from the client's ResourceDatabase. |
-| `ClickSaver2026.Hook` | C++20, 32-bit DLL (CMake). Loaded into the client; detours `DataBlockToMessage` in `MessageProtocol.dll` and forwards every decoded message over the pipe `\.\pipe\ClickSaver2026`. |
-| `ClickSaver2026.Tests` | xUnit v3, 32-bit. Includes end-to-end tests that attach the real hook to the harness. |
-| `ClickSaver2026.HookHarness` | C++ (CMake). A stand-in client: a `MessageProtocol.dll` exporting the same `DataBlockToMessage`, and `HookHost.exe` calling it. |
+| `ClickSaver2026.Hook` | C# .NET 10, Native AOT, 32-bit native DLL. Loaded into the client; hooks `DataBlockToMessage` (and the Request-missions call) through the import tables and forwards every decoded message over the pipe `\.\pipe\ClickSaver2026`. |
+| `ClickSaver2026.Tests` | xUnit v3, 32-bit. Includes end-to-end tests that load the real hook into the harness. |
+| `ClickSaver2026.HookHarness` | C# Native AOT. A stand-in client: a `MessageProtocol.dll` exporting the same `DataBlockToMessage`, and `HookHost.exe` calling it. |
 
 | `Build\` | |
 |---|---|
 | `Release\`, `Debug\` | The runnable app: `ClickSaver2026.exe` with the hook DLL beside it |
-| `Tests\` | Test assemblies |
 | `Harness\` | The stand-in client |
-| `obj\`, `bin\`, `cmake\`, `TestResults\` | Intermediate output |
+| `Tests\` | Test assemblies |
+| `obj\`, `bin\`, `TestResults\` | Intermediate output |
 
 ## Building
 
-Needs Visual Studio 2022 (or Build Tools) with the C++ workload, CMake 3.25+ and the .NET 10 SDK.
+Needs the .NET 10 SDK and the Visual Studio 2022 C++ build tools (Native AOT links the hook
+and harness with the Microsoft linker).
 
 ```powershell
 ./build.ps1          # Release, into Build\Release

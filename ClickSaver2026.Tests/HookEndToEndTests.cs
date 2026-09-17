@@ -25,7 +25,7 @@ public sealed class HookEndToEndTests
         Assert.NotNull(HookInjector.FindLoadedHook(session.Process.Id));
 
         HookHello hello = await session.Connected.Task.WaitAsync(Timeout, cancellation);
-        Assert.Equal(new HookHello(HookStatus.Hooked, session.Process.Id, 1), hello);
+        Assert.Equal(new HookHello(HookStatus.Hooked, session.Process.Id, 2, HookCapabilities.None), hello);
 
         await session.EnoughMessages.Task.WaitAsync(Timeout, cancellation);
         HookMessage[] received = [.. session.Messages];
@@ -40,11 +40,9 @@ public sealed class HookEndToEndTests
         uint[] calls = [.. received.Select(message => BinaryPrimitives.ReadUInt32LittleEndian(message.Data.AsSpan(8)))];
         Assert.Equal(Enumerable.Range((int)calls[0], calls.Length).Select(call => (uint)call), calls);
 
+        // Detaching removes the hooks; the DLL stays resident, so the host's calls reach
+        // MessageProtocol directly again. It exits 2 if any call is ever missed.
         HookInjector.Eject(session.Process.Id, hook);
-        Assert.Null(await session.Disconnected.Task.WaitAsync(Timeout, cancellation));
-        Assert.Null(HookInjector.FindLoadedHook(session.Process.Id));
-
-        // The host checks each call still reaches MessageProtocol.dll, and exits 2 if not.
         await Task.Delay(TimeSpan.FromMilliseconds(300), cancellation);
         Assert.Equal(0, await session.StopAsync(cancellation));
     }
@@ -91,7 +89,7 @@ public sealed class HookEndToEndTests
         string? host = TestPaths.HookHost;
         Assert.SkipWhen(hook is null || host is null, "Build the hook and the harness first (build.ps1).");
         Assert.SkipWhen(Environment.Is64BitProcess, "Attaching needs a 32-bit test process.");
-        return (hook, host);
+        return (hook!, host!);
     }
 
     private sealed class HostSession : IAsyncDisposable

@@ -8,7 +8,7 @@ internal static class TestPaths
     public static string? Hook => Existing(Path.Combine(RepositoryRoot, "Build", "Release", "ClickSaver2026.Hook.dll"));
 
     /// <summary>The stand-in client build.ps1 built, or null when it has not been built.</summary>
-    public static string? HookHost => Existing(Path.Combine(RepositoryRoot, "Build", "Harness", "Release", "HookHost.exe"));
+    public static string? HookHost => Existing(Path.Combine(RepositoryRoot, "Build", "Harness", "HookHost.exe"));
 
     private static string? Existing(string path) => File.Exists(path) ? path : null;
 

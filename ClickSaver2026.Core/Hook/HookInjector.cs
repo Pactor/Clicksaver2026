@@ -10,6 +10,7 @@ namespace ClickSaver2026.Core.Hook;
 public static class HookInjector
 {
     public const string HookFileName = "ClickSaver2026.Hook.dll";
+    public const string StartExport = "ClickSaverStart";
     public const string ShutdownExport = "ClickSaverShutdown";
 
     private const uint Access =
@@ -35,7 +36,10 @@ public static class HookInjector
         return null;
     }
 
-    /// <summary>Loads <paramref name="hookPath"/> into the client by starting LoadLibraryW in it.</summary>
+    /// <summary>
+    /// Loads <paramref name="hookPath"/> into the client (if not already loaded) and starts it -
+    /// LoadLibraryW, then the hook's own ClickSaverStart export. Starting again re-attaches.
+    /// </summary>
     public static unsafe void Inject(int processId, string hookPath)
     {
         // kernel32 is mapped at the same address in every process of the same bitness, so a
@@ -98,6 +102,10 @@ public static class HookInjector
             {
                 throw new InvalidOperationException("The game client could not load the hook DLL.");
             }
+
+            // LoadLibraryW returned the module base; start the hook at its ClickSaverStart export.
+            uint startRva = PeExports.GetExportRva(hookPath, StartExport);
+            RunRemoteThread(process, (nint)module + (nint)startRva, 0);
         }
         finally
         {

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The hook that loads into the 32-bit Anarchy Online client. Compiled with Native AOT to a
+    self-contained 32-bit native DLL: no .NET runtime has to be present in the client. Built by
+    build.ps1 (dotnet publish -r win-x86), not by the solution.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x86</RuntimeIdentifier>
+    <OutputType>Library</OutputType>
+    <NativeLib>Shared</NativeLib>
+    <PublishAot>true</PublishAot>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>ClickSaver2026.Hook</AssemblyName>
+    <RootNamespace>ClickSaver2026.Hook</RootNamespace>
+
+    <!-- Small and dependency-free; keep the symbols out of the shipped DLL. -->
+    <StripSymbols>true</StripSymbols>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <IlcOptimizationPreference>Size</IlcOptimizationPreference>
+  </PropertyGroup>
+
+</Project>

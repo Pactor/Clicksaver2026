@@ -7,28 +7,29 @@ public sealed class HookProtocolTests
     [Fact]
     public void HelloRoundTrips()
     {
-        var hello = new HookHello(HookStatus.ExportNotFound, 4242, 7);
+        var hello = new HookHello(HookStatus.ExportNotFound, 4242, 7, HookCapabilities.CanRequestMissions);
 
         HookHello parsed = HookProtocol.ParseHello(HookProtocol.EncodeHello(hello));
 
         Assert.Equal(hello, parsed);
+        Assert.True(parsed.CanRequestMissions);
     }
 
     [Fact]
     public void HelloBytesMatchTheHooksStruct()
     {
-        byte[] bytes = HookProtocol.EncodeHello(new HookHello(HookStatus.Hooked, 0x01020304, 1));
+        byte[] bytes = HookProtocol.EncodeHello(new HookHello(HookStatus.Hooked, 0x01020304, 2, HookCapabilities.CanRequestMissions));
 
-        // cs::Hello in protocol.h: magic, protocolVersion, status, processId, hookVersion, reserved.
+        // Hello in Wire.cs: magic, protocolVersion, status, processId, hookVersion, capabilities.
         Assert.Equal(20, bytes.Length);
         Assert.Equal("CS26"u8.ToArray(), bytes[..4]);
-        Assert.Equal(new byte[] { 1, 0, 0, 0, 4, 3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 0 }, bytes[4..]);
+        Assert.Equal(new byte[] { 2, 0, 0, 0, 4, 3, 2, 1, 2, 0, 0, 0, 1, 0, 0, 0 }, bytes[4..]);
     }
 
     [Fact]
     public void HelloFromSomethingElseIsRefused()
     {
-        byte[] bytes = HookProtocol.EncodeHello(new HookHello(HookStatus.Hooked, 1, 1));
+        byte[] bytes = HookProtocol.EncodeHello(new HookHello(HookStatus.Hooked, 1, 2, HookCapabilities.None));
         bytes[0] = (byte)'X';
 
         Assert.Throws<InvalidDataException>(() => HookProtocol.ParseHello(bytes));
@@ -37,10 +38,44 @@ public sealed class HookProtocolTests
     [Fact]
     public void HelloFromAnotherProtocolVersionIsRefused()
     {
-        byte[] bytes = HookProtocol.EncodeHello(new HookHello(HookStatus.Hooked, 1, 1));
-        bytes[4] = 2;
+        byte[] bytes = HookProtocol.EncodeHello(new HookHello(HookStatus.Hooked, 1, 2, HookCapabilities.None));
+        bytes[4] = 99;
 
         Assert.Throws<InvalidDataException>(() => HookProtocol.ParseHello(bytes));
+    }
+
+    [Fact]
+    public void MissionRequestedRoundTrips()
+    {
+        var info = new byte[HookProtocol.MissionGenerateInfoSize];
+        info[0] = 11;
+        info[^1] = 0x2A;
+        byte[] payload = [.. BitConverter.GetBytes((uint)RequestSource.ClickSaver), .. info];
+
+        var (source, parsed) = HookProtocol.ParseMissionRequested(payload);
+
+        Assert.Equal(RequestSource.ClickSaver, source);
+        Assert.Equal(info, parsed);
+    }
+
+    [Fact]
+    public void CommandResultRoundTrips()
+    {
+        byte[] payload = [.. BitConverter.GetBytes(7u), .. BitConverter.GetBytes((uint)CommandStatus.Busy)];
+
+        var (id, status) = HookProtocol.ParseCommandResult(payload);
+
+        Assert.Equal(7u, id);
+        Assert.Equal(CommandStatus.Busy, status);
+    }
+
+    [Fact]
+    public void CommandEncodesHeaderAndPayload()
+    {
+        byte[] command = HookProtocol.EncodeCommand(HookProtocol.RequestMissionsCommand, 3, [9, 9]);
+
+        Assert.Equal(HookProtocol.CommandHeaderSize + 2, command.Length);
+        Assert.Equal(new byte[] { 1, 0, 0, 0, 3, 0, 0, 0, 2, 0, 0, 0, 9, 9 }, command);
     }
 
     [Fact]

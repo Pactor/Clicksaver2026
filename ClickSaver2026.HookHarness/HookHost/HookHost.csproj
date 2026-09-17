@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Stand-in for the game client, for the hook tests. Calls MessageProtocol!DataBlockToMessage in a
+    loop with a 64-byte "HookHost" + call-number block (or a file's bytes), checking each call still
+    reaches MessageProtocol. Native AOT, 32-bit; links against the MessageProtocol import library.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x86</RuntimeIdentifier>
+    <OutputType>Exe</OutputType>
+    <PublishAot>true</PublishAot>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>HookHost</AssemblyName>
+    <RootNamespace>HookHost</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <DirectPInvoke Include="MessageProtocol" />
+    <NativeLibrary Include="$(BuildRoot)bin\MessageProtocol\Release\net10.0-windows\win-x86\native\MessageProtocol.lib" />
+  </ItemGroup>
+
+</Project>
