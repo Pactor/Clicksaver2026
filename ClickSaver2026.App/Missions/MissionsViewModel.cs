@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.IO;
+using System.Windows;
 using ClickSaver2026.Core.Capture;
 using ClickSaver2026.Core.GameData;
 using ClickSaver2026.Core.Hook;
@@ -25,7 +26,6 @@ public sealed class MissionsViewModel : ObservableObject, IDisposable
         this.settings = settings;
         this.BrowseCommand = new RelayCommand(this.Browse);
         this.DetectCommand = new RelayCommand(() => this.DetectClientFolder(userAsked: true));
-        this.OpenCaptureCommand = new RelayCommand(this.OpenCapture);
 
         if (GameDatabase.IsClientFolder(settings.ClientFolder))
         {
@@ -44,9 +44,10 @@ public sealed class MissionsViewModel : ObservableObject, IDisposable
 
     public RelayCommand DetectCommand { get; }
 
-    public RelayCommand OpenCaptureCommand { get; }
-
     public string ClientFolder => this.database?.ClientFolder ?? "Not set";
+
+    /// <summary>The folder controls (Detect / Set folder) show only until the game data is found.</summary>
+    public Visibility SetupVisibility => this.database is null ? Visibility.Visible : Visibility.Collapsed;
 
     public string DatabaseStatus
     {
@@ -141,30 +142,6 @@ public sealed class MissionsViewModel : ObservableObject, IDisposable
 
     public void Dispose() => this.database?.Dispose();
 
-    private void OpenCapture()
-    {
-        var dialog = new OpenFileDialog
-        {
-            Title = "Open a ClickSaver2026 capture",
-            Filter = $"Captures (*{CaptureFormat.Extension})|*{CaptureFormat.Extension}",
-            InitialDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ClickSaver2026", "Captures"),
-        };
-        if (dialog.ShowDialog() != true)
-        {
-            return;
-        }
-
-        try
-        {
-            int lists = this.LoadCapture(dialog.FileName);
-            this.DatabaseStatus = string.Create(CultureInfo.CurrentCulture, $"{lists} mission lists in {Path.GetFileName(dialog.FileName)}.");
-        }
-        catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException)
-        {
-            this.DatabaseStatus = "Could not read the capture: " + e.Message;
-        }
-    }
-
     private void Browse()
     {
         var dialog = new OpenFolderDialog { Title = "Choose the Anarchy Online folder (the one containing cd_image)" };
@@ -231,5 +208,6 @@ public sealed class MissionsViewModel : ObservableObject, IDisposable
 
         this.DatabaseStatus = string.Create(CultureInfo.CurrentCulture, $"{opened.ItemCount:N0} items available. New rolls will show item names and icons.");
         this.OnPropertyChanged(nameof(this.ClientFolder));
+        this.OnPropertyChanged(nameof(this.SetupVisibility));
     }
 }

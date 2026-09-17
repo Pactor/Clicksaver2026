@@ -31,14 +31,12 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="AO folder:" VerticalAlignment="Center" Margin="0,0,8,0" />
                         <TextBlock Grid.Column="1" Text="{Binding ClientFolder}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                        <Button Grid.Column="2" Content="Detect" Command="{Binding DetectCommand}" Margin="8,0,0,0" />
-                        <Button Grid.Column="3" Content="Browse..." Command="{Binding BrowseCommand}" Margin="8,0,0,0" />
-                        <Button Grid.Column="4" Content="Open capture..." Command="{Binding OpenCaptureCommand}" Margin="8,0,0,0" />
-                        <TextBlock Grid.Row="1" Grid.ColumnSpan="5" Text="{Binding DatabaseStatus}" Margin="0,4,0,0" Opacity="0.75" />
+                        <Button Grid.Column="2" Content="Detect" Command="{Binding DetectCommand}" Margin="8,0,0,0" Visibility="{Binding SetupVisibility}" />
+                        <Button Grid.Column="3" Content="Set folder..." Command="{Binding BrowseCommand}" Margin="8,0,0,0" Visibility="{Binding SetupVisibility}" />
+                        <TextBlock Grid.Row="1" Grid.ColumnSpan="4" Text="{Binding DatabaseStatus}" Margin="0,4,0,0" Opacity="0.75" />
                     </Grid>
 
                     <GroupBox Header="Buying agent" DockPanel.Dock="Top" Margin="0,0,0,8"
