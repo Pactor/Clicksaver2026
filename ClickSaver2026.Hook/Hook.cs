@@ -22,23 +22,40 @@ namespace ClickSaver2026.Hook;
 internal static unsafe class Hook
 {
     private const string MessageProtocolDll = "MessageProtocol.dll";
-    private const string User32Dll = "user32.dll";
-
-    // The client's main loop pumps one of these every frame on its UI thread - the same thread the
-    // mission-terminal Request button runs on. Hooking whichever one the client imports gives us a
-    // safe on-thread moment (between messages, before a frame) to replay a roll, without subclassing
-    // the game window. The retail engine (Anarchy.exe) uses PeekMessageA; the others are fallbacks.
-    private static readonly string[] MessagePumpImports = ["PeekMessageA", "PeekMessageW", "GetMessageA", "GetMessageW"];
+    private const string ConnectionDll = "Connection.dll";
 
     // The game imports "?DataBlockToMessage@@YAPAVMessage_t@@IPAX@Z"; matched by this prefix so a
     // stand-in that dropped the signature suffix ("?DataBlockToMessage") matches too.
     private const string DataBlockToMessagePrefix = "?DataBlockToMessage";
 
-    // Where the Request button's call is imported from, in the game and in the test harness.
+    // The Request button's call. Records the slider settings (for display) and arms request capture.
+    // Interfaces.dll in the game; MessageProtocol.dll in the test harness stand-in.
     private static readonly (string Dll, string Name)[] GenerateMissionsImports =
     [
         ("Interfaces.dll", "?N3Msg_GenerateMissions@N3InterfaceModule_t@@QAEXPAVMissionGenerateInfo_t@@@Z"),
         (MessageProtocolDll, "?N3Msg_GenerateMissions@N3InterfaceModule_t@@QAEXPAVMissionGenerateInfo_t@@@Z"),
+    ];
+
+    // Connection_t::Send(unsigned int id, const Message_t&) - the outgoing send Interfaces.dll makes
+    // for the mission request. Hooked in Interfaces.dll's IAT to capture the request's wire bytes.
+    private const string ConnectionSendName = "?Send@Connection_t@@QAEHIABVMessage_t@@@Z";
+
+    // Connection_t::Send(unsigned int id, unsigned int size, const void* data) - the raw send,
+    // exported by Connection.dll and thread-safe (a send lock). Resending the captured bytes through
+    // it rolls again, from any thread, without touching the mouse or the client's UI.
+    private const string ConnectionSendRawName = "?Send@Connection_t@@QAEHIIPBX@Z";
+
+    // Message_t serialisers, exported by MessageProtocol.dll, used to snapshot a request's wire
+    // bytes. CreateDataBlock is virtual, so the concrete override is found in the object's vtable.
+    private const string DataBlockSizeGetName = "?DataBlockSizeGet@Message_t@@QBEIXZ";
+    private static readonly string[] CreateDataBlockNames =
+    [
+        "?CreateDataBlock@Message_t@@UBEPADXZ",
+        "?CreateDataBlock@N3Message_t@@UBEPADXZ",
+        "?CreateDataBlock@OperatorMessage_t@@UBEPADXZ",
+        "?CreateDataBlock@PingMessage_t@@UBEPADXZ",
+        "?CreateDataBlock@SystemMessage_t@@UBEPADXZ",
+        "?CreateDataBlock@TextMessage_t@@UBEPADXZ",
     ];
 
     private const long MaxQueuedBytes = 64 * 1024 * 1024;
@@ -50,35 +67,50 @@ internal static unsafe class Hook
     private static uint dropped;
 
     private static readonly Lock RequestLock = new();
-    private static bool haveRecording;
-    private static nint recordedThis;
-    private static uint gameThread;
+    private static bool haveRecording;                          // the 40-byte slider info, for display
     private static readonly byte[] recorded = new byte[Wire.MissionGenerateInfoSize];
 
-    private static bool havePending;
-    private static uint pendingId;
-    private static bool pendingUseRecorded;
-    private static readonly byte[] pendingInfo = new byte[Wire.MissionGenerateInfoSize];
+    // The captured outgoing mission-request send, resent to roll.
+    private static bool haveSendRecording;
+    private static nint sendConnection;                         // Connection_t* (the send's this)
+    private static uint sendMessageId;                          // the send's id argument
+    private static byte[] sendBytes = [];                       // the request's wire bytes
+
+    // Arms request capture: set on the player's N3Msg_GenerateMissions, consumed by the next
+    // Connection_t::Send on the same thread.
+    private static volatile bool expectSend;
+    private static uint expectSendThread;
 
     private static string pipePath = string.Empty;
 
     private static nint dataBlockOriginal;
-    private static nint generateOriginal;   // the client's real __thiscall N3Msg_GenerateMissions
-    private static nint detourStub;         // __thiscall->__cdecl stub placed in the import slot
-    private static nint replayStub;         // __cdecl->__thiscall stub the app uses to roll
+    private static nint generateOriginal;    // the client's real __thiscall N3Msg_GenerateMissions
+    private static nint generateDetourStub;  // __thiscall->__cdecl detour in the Request import slot
     private static (string Dll, string Name) generateImport;
-    private static nint pumpOriginal;       // the client's real message-pump function
-    private static string pumpName = string.Empty;
-    private static bool pumpIsGet;          // a 4-arg GetMessage rather than a 5-arg PeekMessage
-    private static bool pumpHooked;
+
+    private static nint sendOriginal;        // the client's real Connection_t::Send(Message_t&)
+    private static nint sendDetourStub;      // __thiscall(2-arg)->__cdecl detour in the Send slot
+    private static bool sendHooked;
+
+    private static nint sendRawStub;         // __cdecl->__thiscall(3-arg) call to the raw Send
+    private static nint sizeGetStub;         // __cdecl->__thiscall(0-arg) DataBlockSizeGet
+    private static nint[] createDataBlockAddrs = [];  // exported CreateDataBlock override addresses
+    private static nint createStub;          // cached __cdecl->__thiscall(0-arg) for a CreateDataBlock
+    private static nint createStubFn;        // which CreateDataBlock address createStub wraps
+
     private static bool messagesHooked;
-    private static bool requestsHooked;
+    private static bool requestsHooked;      // the Request-button hook (display + arming) is installed
     private static HookStatus status = HookStatus.MessageProtocolNotLoaded;
 
     private static volatile bool active;
     private static volatile bool connected;
     private static int inFlight;
     private static bool started;
+
+    // Rolling needs the whole chain: the Request hook to arm capture, the Send hook to capture, and
+    // the raw send + serialisers to snapshot and resend. Reported to the app as the roll capability.
+    private static bool RollReady =>
+        requestsHooked && sendHooked && sendRawStub != 0 && sizeGetStub != 0 && createDataBlockAddrs.Length > 0;
 
     // Called by the app right after LoadLibrary, and again to re-attach. Installs the hooks and,
     // the first time, starts the pipe threads.
@@ -106,18 +138,15 @@ internal static unsafe class Hook
     {
         active = false;
 
-        if (pumpHooked)
+        if (sendHooked)
         {
-            nint detour = pumpIsGet
-                ? (nint)(delegate* unmanaged[Stdcall]<nint, nint, uint, uint, int>)&GetMessageDetour
-                : (nint)(delegate* unmanaged[Stdcall]<nint, nint, uint, uint, uint, int>)&PeekMessageDetour;
-            IatHook.Restore(User32Dll, pumpName, detour, pumpOriginal);
-            pumpHooked = false;
+            IatHook.Restore(ConnectionDll, ConnectionSendName, sendDetourStub, sendOriginal);
+            sendHooked = false;
         }
 
         if (requestsHooked)
         {
-            IatHook.Restore(generateImport.Dll, generateImport.Name, detourStub, generateOriginal);
+            IatHook.Restore(generateImport.Dll, generateImport.Name, generateDetourStub, generateOriginal);
             requestsHooked = false;
         }
 
@@ -154,7 +183,8 @@ internal static unsafe class Hook
 
         // Rolling missions is an extra: messages are still forwarded without it. The Request call is
         // __thiscall, which the runtime does not emit correctly as a reverse callback, so it is
-        // hooked through hand-written trampolines rather than a managed __thiscall detour.
+        // hooked through hand-written trampolines rather than a managed __thiscall detour. It records
+        // the slider settings for display and arms capture of the outgoing request.
         if (!requestsHooked)
         {
             foreach ((string dll, string name) in GenerateMissionsImports)
@@ -166,45 +196,80 @@ internal static unsafe class Hook
                 }
 
                 nint onGenerate = (nint)(delegate* unmanaged[Cdecl]<nint, nint, void>)&OnGenerate;
-                detourStub = AllocThunk(Trampolines.ThiscallToCdeclDetour(onGenerate, original));
-                replayStub = AllocThunk(Trampolines.CdeclToThiscallReplay(original));
-                if (detourStub == 0 || replayStub == 0)
+                generateDetourStub = AllocThunk(Trampolines.ThiscallToCdeclDetour(onGenerate, original));
+                if (generateDetourStub == 0)
                 {
                     break;
                 }
 
                 generateOriginal = original;
                 generateImport = (dll, name);
-                IatHook.PatchAll(dll, name, detourStub);
+                IatHook.PatchAll(dll, name, generateDetourStub);
                 requestsHooked = true;
                 break;
             }
         }
 
-        // With the Request call hooked, add the on-thread pump so a queued roll runs on the client's
-        // own UI thread. Whichever message-pump function the client actually imports is hooked; if
-        // none is (e.g. a non-game host), rolling reports NotSupported instead of running off-thread.
-        if (requestsHooked && !pumpHooked)
+        // The outgoing mission-request send. Hooked in Interfaces.dll's IAT to capture the request's
+        // wire bytes (a __thiscall with two stack arguments, bridged by a trampoline).
+        if (requestsHooked && !sendHooked)
         {
-            foreach (string name in MessagePumpImports)
+            nint sendImport = IatHook.Find(ConnectionDll, ConnectionSendName);
+            if (sendImport != 0)
             {
-                bool isGet = name[0] == 'G';
-                nint detour = isGet
-                    ? (nint)(delegate* unmanaged[Stdcall]<nint, nint, uint, uint, int>)&GetMessageDetour
-                    : (nint)(delegate* unmanaged[Stdcall]<nint, nint, uint, uint, uint, int>)&PeekMessageDetour;
-                nint original = IatHook.PatchAll(User32Dll, name, detour);
-                if (original != 0)
+                nint onSend = (nint)(delegate* unmanaged[Cdecl]<nint, uint, nint, void>)&OnSend;
+                sendDetourStub = AllocThunk(Trampolines.ThiscallToCdeclDetour2(onSend, sendImport));
+                if (sendDetourStub != 0)
                 {
-                    pumpOriginal = original;
-                    pumpName = name;
-                    pumpIsGet = isGet;
-                    pumpHooked = true;
-                    break;
+                    sendOriginal = sendImport;
+                    IatHook.PatchAll(ConnectionDll, ConnectionSendName, sendDetourStub);
+                    sendHooked = true;
                 }
             }
         }
 
+        // The exported raw send + serialisers used to snapshot and resend the request. Resolved once;
+        // available only once Connection.dll and MessageProtocol.dll are loaded.
+        if (sendRawStub == 0)
+        {
+            nint raw = ExportAddress(ConnectionDll, ConnectionSendRawName);
+            if (raw != 0)
+            {
+                sendRawStub = AllocThunk(Trampolines.CdeclToThiscallCall3(raw));
+            }
+        }
+
+        if (sizeGetStub == 0)
+        {
+            nint sizeGet = ExportAddress(MessageProtocolDll, DataBlockSizeGetName);
+            if (sizeGet != 0)
+            {
+                sizeGetStub = AllocThunk(Trampolines.CdeclToThiscallCall0(sizeGet));
+            }
+        }
+
+        if (createDataBlockAddrs.Length == 0)
+        {
+            var addrs = new List<nint>();
+            foreach (string name in CreateDataBlockNames)
+            {
+                nint a = ExportAddress(MessageProtocolDll, name);
+                if (a != 0)
+                {
+                    addrs.Add(a);
+                }
+            }
+
+            createDataBlockAddrs = [.. addrs];
+        }
+
         return HookStatus.Hooked;
+    }
+
+    private static nint ExportAddress(string module, string name)
+    {
+        nint handle = NativeApi.GetModuleHandleW(module);
+        return handle == 0 ? 0 : NativeApi.GetProcAddress(handle, name);
     }
 
     private static nint AllocThunk(ReadOnlySpan<byte> code)
@@ -238,58 +303,15 @@ internal static unsafe class Hook
 
         nint result = ((delegate* unmanaged[Cdecl]<uint, nint, nint>)dataBlockOriginal)(size, data);
 
-        // Rolls are NOT replayed here: the retail client decodes server blocks on a different thread
-        // than the mission-terminal button, so calling the client from this thread is unsafe. The
-        // roll is pumped from the message-pump hook instead, which runs on the button's own thread.
+        // Rolls are not driven from here: a roll resends the captured request over the network
+        // (Connection_t::Send is thread-safe), so nothing needs to run on this decode thread.
         Interlocked.Decrement(ref inFlight);
         return result;
     }
 
-    // The client's main loop calls this every frame on its UI thread (PeekMessage form: 5 args).
-    // After the real pump runs, a queued roll is replayed here - on the button's own thread.
-    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
-    private static int PeekMessageDetour(nint msg, nint window, uint filterMin, uint filterMax, uint remove)
-    {
-        int result = ((delegate* unmanaged[Stdcall]<nint, nint, uint, uint, uint, int>)pumpOriginal)(msg, window, filterMin, filterMax, remove);
-        PumpPendingRequest();
-        return result;
-    }
-
-    // The GetMessage form of the pump (4 args), used when the client imports GetMessage instead.
-    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
-    private static int GetMessageDetour(nint msg, nint window, uint filterMin, uint filterMax)
-    {
-        int result = ((delegate* unmanaged[Stdcall]<nint, nint, uint, uint, int>)pumpOriginal)(msg, window, filterMin, filterMax);
-        PumpPendingRequest();
-        return result;
-    }
-
-    // Runs on the client's UI thread from the message-pump hook. Cheap on the common path (just a
-    // volatile read) so it is safe to call every frame; only does work when a roll is queued.
-    private static void PumpPendingRequest()
-    {
-        if (!requestsHooked || !Volatile.Read(ref havePending))
-        {
-            return;
-        }
-
-        Interlocked.Increment(ref inFlight);
-        try
-        {
-            RunPendingRequest();
-        }
-        catch
-        {
-            // A failed roll must never take the client down.
-        }
-        finally
-        {
-            Interlocked.Decrement(ref inFlight);
-        }
-    }
-
-    // Called (as __cdecl) by the detour trampoline before the real Request call runs. It only
-    // records and forwards; the trampoline tail-calls the original __thiscall function itself.
+    // Called (as __cdecl) by the Request detour before the real call runs. Records the slider
+    // settings for display and arms capture of the send the real call is about to make. The
+    // trampoline tail-calls the original __thiscall function itself.
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static void OnGenerate(nint self, nint info)
     {
@@ -301,11 +323,12 @@ internal static unsafe class Hook
                 lock (RequestLock)
                 {
                     new ReadOnlySpan<byte>((void*)info, Wire.MissionGenerateInfoSize).CopyTo(recorded);
-                    recordedThis = self;
-                    gameThread = NativeApi.GetCurrentThreadId();
                     haveRecording = true;
                 }
 
+                // The next Connection_t::Send on this thread is the mission request.
+                expectSendThread = NativeApi.GetCurrentThreadId();
+                expectSend = true;
                 SendMissionRequested(RequestSource.Player, recorded);
             }
         }
@@ -317,101 +340,178 @@ internal static unsafe class Hook
         Interlocked.Decrement(ref inFlight);
     }
 
-    // Runs on the game window's thread - the thread the Request button itself calls from.
-    private static void RunPendingRequest()
+    // Called (as __cdecl) by the Send detour before the real Connection_t::Send runs. When it is the
+    // send the player's Request armed, on the same thread, it snapshots the message's wire bytes so a
+    // roll can resend them. The trampoline tail-calls the real __thiscall Send afterwards.
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static void OnSend(nint self, uint id, nint message)
     {
-        uint id;
-        bool useRecorded;
-        var info = new byte[Wire.MissionGenerateInfoSize];
-        nint self;
-        uint thread;
-        lock (RequestLock)
+        Interlocked.Increment(ref inFlight);
+        try
         {
-            if (!havePending)
+            if (active && message != 0 && expectSend && NativeApi.GetCurrentThreadId() == expectSendThread)
             {
-                return;
-            }
-
-            havePending = false;
-            id = pendingId;
-            useRecorded = pendingUseRecorded;
-            if (useRecorded)
-            {
-                if (!haveRecording)
+                expectSend = false;
+                byte[]? bytes = SnapshotMessage(message);
+                if (bytes is not null)
                 {
-                    SendCommandResult(id, CommandStatus.NothingRecorded);
-                    return;
+                    lock (RequestLock)
+                    {
+                        sendConnection = self;
+                        sendMessageId = id;
+                        sendBytes = bytes;
+                        haveSendRecording = true;
+                    }
                 }
-
-                recorded.CopyTo(info, 0);
             }
-            else
+        }
+        catch
+        {
+            // A capture error must never reach the client; the real send still runs.
+        }
+
+        Interlocked.Decrement(ref inFlight);
+    }
+
+    // Serialises a live Message_t to the bytes it will send: calls its (virtual) CreateDataBlock via
+    // the object's own vtable, then DataBlockSizeGet, and copies the block out.
+    private static byte[]? SnapshotMessage(nint message)
+    {
+        if (sizeGetStub == 0)
+        {
+            return null;
+        }
+
+        nint createFn = FindCreateDataBlock(message);
+        if (createFn == 0)
+        {
+            return null;
+        }
+
+        nint stub = CreateBlockStub(createFn);
+        if (stub == 0)
+        {
+            return null;
+        }
+
+        nint data = ((delegate* unmanaged[Cdecl]<nint, nint>)stub)(message);
+        uint size = ((delegate* unmanaged[Cdecl]<nint, uint>)sizeGetStub)(message);
+        if (data == 0 || size == 0 || size > Wire.MaxMessageSize)
+        {
+            return null;
+        }
+
+        var buffer = new byte[size];
+        new ReadOnlySpan<byte>((void*)data, (int)size).CopyTo(buffer);
+        return buffer;
+    }
+
+    // The message object's own CreateDataBlock, found by matching its vtable against the exported
+    // overrides. Only the first slots are scanned, all inside MessageProtocol.dll's .rdata.
+    private static nint FindCreateDataBlock(nint message)
+    {
+        nint vptr = *(nint*)message; // the vtable pointer is the object's first field
+        if (vptr == 0)
+        {
+            return 0;
+        }
+
+        nint* vtable = (nint*)vptr;
+        for (int slot = 0; slot < 32; slot++)
+        {
+            nint fn = vtable[slot];
+            foreach (nint known in createDataBlockAddrs)
             {
-                pendingInfo.CopyTo(info, 0);
+                if (fn == known)
+                {
+                    return fn;
+                }
             }
-
-            self = recordedThis;
-            thread = gameThread;
         }
 
-        if (self == 0 || thread != NativeApi.GetCurrentThreadId())
+        return 0;
+    }
+
+    private static nint CreateBlockStub(nint createFn)
+    {
+        if (createFn == createStubFn && createStub != 0)
         {
-            // The message thread is not the thread the Request button ran on, so we cannot safely
-            // call into the client from here. Reported distinctly from "nothing recorded".
-            SendCommandResult(id, CommandStatus.NotSupported);
-            return;
+            return createStub;
         }
 
-        fixed (byte* p = info)
+        nint stub = AllocThunk(Trampolines.CdeclToThiscallCall0(createFn));
+        if (stub != 0)
         {
-            // The replay trampoline puts self in ecx and calls the real __thiscall function.
-            ((delegate* unmanaged[Cdecl]<nint, nint, void>)replayStub)(self, (nint)p);
+            createStub = stub;
+            createStubFn = createFn;
         }
 
-        SendMissionRequested(RequestSource.ClickSaver, info);
-        SendCommandResult(id, CommandStatus.Done);
+        return stub;
     }
 
     private static void HandleCommand(uint kind, uint id, ReadOnlySpan<byte> payload)
     {
-        if (kind != (uint)CommandKind.RequestMissions || (payload.Length != 0 && payload.Length != Wire.MissionGenerateInfoSize))
+        if (kind != (uint)CommandKind.RequestMissions || payload.Length != 0)
         {
             SendCommandResult(id, CommandStatus.BadCommand);
             return;
         }
 
-        if (!active || !requestsHooked || !pumpHooked)
+        if (!active || !RollReady)
         {
-            // Without both the Request hook and the on-thread pump there is no safe way to roll.
             SendCommandResult(id, CommandStatus.NotSupported);
             return;
         }
 
+        // The raw send is thread-safe, so the roll runs right here on the command thread.
+        Interlocked.Increment(ref inFlight);
+        try
+        {
+            DoRoll(id);
+        }
+        catch
+        {
+            SendCommandResult(id, CommandStatus.NotSupported);
+        }
+        finally
+        {
+            Interlocked.Decrement(ref inFlight);
+        }
+    }
+
+    // Resends the captured mission-request bytes through the exported raw Connection_t::Send, which
+    // takes its own send lock, so this is safe from any thread and never touches the client's UI.
+    private static void DoRoll(uint id)
+    {
+        nint connection;
+        uint messageId;
+        byte[] bytes;
         lock (RequestLock)
         {
-            if (havePending)
-            {
-                SendCommandResult(id, CommandStatus.Busy);
-                return;
-            }
-
-            if (payload.Length == 0 && !haveRecording)
+            if (!haveSendRecording || sendBytes.Length == 0)
             {
                 SendCommandResult(id, CommandStatus.NothingRecorded);
                 return;
             }
 
-            pendingId = id;
-            pendingUseRecorded = payload.Length == 0;
-            if (payload.Length != 0)
-            {
-                payload.CopyTo(pendingInfo);
-            }
-
-            havePending = true;
+            connection = sendConnection;
+            messageId = sendMessageId;
+            bytes = sendBytes; // an immutable snapshot; a new capture replaces the array wholesale
         }
 
-        // The roll itself runs from the message-pump hook, on the client's own UI thread.
+        if (connection == 0 || sendRawStub == 0)
+        {
+            SendCommandResult(id, CommandStatus.NotSupported);
+            return;
+        }
+
+        fixed (byte* p = bytes)
+        {
+            ((delegate* unmanaged[Cdecl]<nint, uint, uint, nint, int>)sendRawStub)(connection, messageId, (uint)bytes.Length, (nint)p);
+        }
+
+        SendMissionRequested(RequestSource.ClickSaver, recorded);
+        SendCommandResult(id, CommandStatus.Done);
     }
 
     // ---- Frames to the app ----
@@ -485,7 +585,7 @@ internal static unsafe class Hook
         BitConverter.TryWriteBytes(hello[6..], (ushort)status);
         BitConverter.TryWriteBytes(hello[8..], NativeApi.GetCurrentProcessId());
         BitConverter.TryWriteBytes(hello[12..], Wire.HookVersion);
-        BitConverter.TryWriteBytes(hello[16..], requestsHooked ? (uint)HookCapabilities.CanRequestMissions : 0u);
+        BitConverter.TryWriteBytes(hello[16..], RollReady ? (uint)HookCapabilities.CanRequestMissions : 0u);
         if (!WriteAll(pipe, hello))
         {
             return;

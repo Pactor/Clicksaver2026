@@ -22,41 +22,57 @@ commits go out under their name with no Claude attribution.
 
 ## THE CURRENT PROBLEM — auto-roll (buying agent)
 
-Rolling missions automatically (repeat the player's last Request until a watched item appears)
-is the open item. History of the crash and where it stands:
+Rolling missions automatically (repeat the player's last Request until a watched item appears) is
+the open item. The mechanism was wrong for a long time; here is the corrected model and where it
+stands.
 
-1. The roll = replay of the client's internal `N3Msg_GenerateMissions` (carries the slider
-   settings), **not** a click on the popup. `this` + the 40-byte `MissionGenerateInfo_t` are
-   recorded when the player clicks Request; replaying calls the same function again.
-2. That function is `__thiscall`, which Native AOT does **not** emit correctly. Fixed with
-   hand-written x86 trampolines (`ClickSaver2026.Core/Hook/Trampolines.cs`, unit-tested). Do NOT
-   use `delegate* unmanaged[Thiscall]` / `[UnmanagedCallersOnly(Thiscall)]` in AOT x86.
-3. The account still crashed — but the user confirmed it crashes **only on an agent roll, never on
-   a manual roll**. So the record + the replay call are fine; the crash was the **whole-window
-   subclass** the agent used to run the replay on the game thread (SetWindowLongPtr on the
-   "Anarchy client" main window + a managed WndProc on every message). That is now **removed**.
-4. **First attempt (rejected by a live test):** replay from inside the `DataBlockToMessage` hook,
-   guarded by `gameThread == GetCurrentThreadId()`. The retail client decodes server blocks on a
-   **different** thread than the mission-terminal button, so the guard failed and the agent reported
-   **"cannot roll from the hook"** — confirming DataBlock and the button run on different threads.
-5. **Current mechanism (needs live verification):** the replay is pumped from a hook on the client's
-   **message-pump** function. The retail engine (`Anarchy.exe`) imports `PeekMessageA` and calls it
-   every frame on its UI thread — the same thread the Request button dispatches on. The hook
-   (`PeekMessageDetour`, a correct `__stdcall` reverse callback) calls the real pump, then, if a roll
-   is queued, replays `N3Msg_GenerateMissions` right there — a quiescent point between messages, on
-   the button's own thread. No window subclass. `RunPendingRequest` keeps its
-   `thread == GetCurrentThreadId()` guard as defense; on the pump thread it now matches. If the host
-   imports no pump function at all, rolling reports `NotSupported` up front instead of hanging.
-   Which pump is hooked: first of `PeekMessageA / PeekMessageW / GetMessageA / GetMessageW` found in
-   the process's IATs (`MessagePumpImports` in `Hook.cs`).
+### What rolling actually is (ground truth, from ClickSaver 2.5.3's ReadMe)
+The **original** ClickSaver buying agent did **not** call any internal function. It **simulated
+mouse clicks** at fixed screen pixels: snap the mission box to the screen's top-left, alt-tab so the
+game has mouse focus, then it "clicks twice on the leftmost pixel of the difficulty slider, twice on
+the rightmost, then clicks Request." That is the clunky mouse-hijack the user wanted to improve on.
+The old DLL hook was **only for reading** mission info to display — never for rolling.
 
-### What to ask / check next
-- After the user's next test, the two outcomes: (a) it rolls and matches — **done**; or (b) it still
-  crashes or misbehaves on an agent roll — then the `PeekMessageA` replay point is not safe and we
-  fall back to network-level replay (below).
-- Fallback if on-thread replay still isn't safe: replay at the **network level** — capture the
-  outgoing request packet when the player clicks Request and resend the bytes (never calls client
-  C++), which cannot corrupt client state. `Connection.dll` is the module to hook for the send path.
+So the earlier rewrite premise was wrong: replaying the internal `N3Msg_GenerateMissions` does
+nothing useful (its name/role is the incoming mission path, not the outgoing request). Two dead
+attempts, both removed: (a) replay from the `DataBlockToMessage` hook — refused, wrong thread;
+(b) replay pumped from a `PeekMessageA` hook on the UI thread — "says rolling but does nothing."
+
+### Current mechanism — network-level replay (needs live verification)
+Roll by **resending the exact outgoing request bytes** the client already sends when the player
+clicks Request. No mouse, no UI thread, no client-UI reentrancy. Verified against the retail
+binaries with `dumpbin`:
+- `Interfaces.dll` imports `Connection_t::Send(unsigned int id, const Message_t&)`
+  (`?Send@Connection_t@@QAEHIABVMessage_t@@@Z`) — the send the mission request goes through.
+- `Connection.dll` **exports** the raw `Connection_t::Send(id, size, const void* data)`
+  (`?Send@Connection_t@@QAEHIIPBX@Z`), and sending holds a lock (`m_cSendLock@TcpHandler_t`), so it
+  is **thread-safe** — replay can run from the command-pipe thread.
+- `MessageProtocol.dll` exports `DataBlockSizeGet@Message_t` and the `CreateDataBlock` overrides,
+  used to serialise a live message to its wire bytes.
+
+Flow in `Hook.cs`:
+1. `OnGenerate` (Request-button hook) records the 40-byte slider info for display and **arms**
+   capture: `expectSend = true`, `expectSendThread = current`.
+2. `OnSend` (IAT hook on `Connection_t::Send(Message_t&)` in Interfaces.dll, via the new
+   `ThiscallToCdeclDetour2` 2-arg trampoline) fires on the next send on that thread, snapshots the
+   message bytes (`SnapshotMessage` → finds the object's `CreateDataBlock` in its vtable, calls it +
+   `DataBlockSizeGet`), and stores `(Connection*, id, bytes)`. The real send still happens.
+3. A roll command calls `DoRoll` **on the command thread**: resends the bytes through the exported
+   raw `Send` (`CdeclToThiscallCall3` trampoline). Returns `Done`.
+Capability `CanRequestMissions` is now gated on the whole chain (`RollReady`): Request hook + Send
+hook + raw send + serialisers all resolved. New trampolines are unit-tested (`TrampolineTests`).
+
+### What to check next (the app now shows a diagnostic)
+The buying-agent status reads `Rolling N of M... (replayed X, new lists Y, last Z)`:
+- **last = NothingRecorded** → capture missed: the request send did not come through
+  `Connection_t::Send` on the armed thread (maybe queued/async). Adapt capture (e.g. capture at the
+  raw exported `Send` via an inline detour, or widen the arm window).
+- **last = Done, replayed climbs, new lists = 0** → replay sends but the server does not roll: the
+  `id` passed to the raw `Send` may differ from what the `Message_t&` overload forwards, or the
+  bytes need the overload's framing. Inline-detour the raw `Send` to capture exactly what it sends.
+- **last = Done, replayed climbs, new lists climb** → it works.
+- **last = NotSupported** → `RollReady` is false: one of the imports/exports was not found (check the
+  module names / that Connection.dll + MessageProtocol.dll were loaded when hooks installed).
 
 ## Build / run
 

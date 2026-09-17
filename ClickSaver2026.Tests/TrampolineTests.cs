@@ -56,7 +56,119 @@ public sealed unsafe class TrampolineTests
         Assert.Equal(0x4000 + 100, fromOriginal[1]);
     }
 
+    [Fact]
+    public void CdeclToThiscallCall0CallsTheThiscallWithThisAndReturnsItsValue()
+    {
+        Assert.SkipUnless(Environment.Is64BitProcess == false, "32-bit only.");
+
+        int* recorded = Zeroed();
+        // A no-arg __thiscall recorder: writes ecx (this), returns 0xABCD, then plain ret.
+        nint recorder = Exec(ThiscallRecorder0((nint)recorded));
+        nint call0 = Exec(Trampolines.CdeclToThiscallCall0(recorder));
+
+        var call = (delegate* unmanaged[Cdecl]<nint, nint>)call0;
+        nint result = 0;
+        for (int i = 1; i <= 100; i++)
+        {
+            result = call(0x1000 + i); // an unbalanced stack would crash this loop
+        }
+
+        Assert.Equal(0x1000 + 100, recorded[0]); // this
+        Assert.Equal(0xABCD, (int)result);       // the thiscall's return value, forwarded
+    }
+
+    [Fact]
+    public void CdeclToThiscallCall3CallsTheThiscallWithThisAndThreeArgs()
+    {
+        Assert.SkipUnless(Environment.Is64BitProcess == false, "32-bit only.");
+
+        int* recorded = ZeroedN(16);
+        // A 3-arg __thiscall recorder: writes ecx and the three args, then ret 12.
+        nint recorder = Exec(ThiscallRecorder3((nint)recorded));
+        nint call3 = Exec(Trampolines.CdeclToThiscallCall3(recorder));
+
+        var call = (delegate* unmanaged[Cdecl]<nint, nint, nint, nint, void>)call3;
+        for (int i = 1; i <= 100; i++)
+        {
+            call(0x1000 + i, 0x2000 + i, 0x3000 + i, 0x4000 + i);
+        }
+
+        Assert.Equal(0x1000 + 100, recorded[0]); // this
+        Assert.Equal(0x2000 + 100, recorded[1]); // a
+        Assert.Equal(0x3000 + 100, recorded[2]); // b
+        Assert.Equal(0x4000 + 100, recorded[3]); // c
+    }
+
+    [Fact]
+    public void ThiscallToCdeclDetour2CallsTheCallbackThenTheOriginal()
+    {
+        Assert.SkipUnless(Environment.Is64BitProcess == false, "32-bit only.");
+
+        int* fromCallback = ZeroedN(12);
+        int* fromOriginal = ZeroedN(12);
+        nint callback = Exec(CdeclRecorder2((nint)fromCallback));   // records (this, a, b) as __cdecl
+        nint original = Exec(ThiscallRecorder2((nint)fromOriginal)); // records (this, a, b) as __thiscall
+        nint detour = Exec(Trampolines.ThiscallToCdeclDetour2(callback, original));
+        nint invokeAsThiscall = Exec(ThiscallCaller2());
+
+        var invoke = (delegate* unmanaged[Cdecl]<nint, nint, nint, nint, void>)invokeAsThiscall;
+        for (int i = 1; i <= 100; i++)
+        {
+            invoke(detour, 0x3000 + i, 0x4000 + i, 0x5000 + i);
+        }
+
+        Assert.Equal(0x3000 + 100, fromCallback[0]);
+        Assert.Equal(0x4000 + 100, fromCallback[1]);
+        Assert.Equal(0x5000 + 100, fromCallback[2]);
+        Assert.Equal(0x3000 + 100, fromOriginal[0]);
+        Assert.Equal(0x4000 + 100, fromOriginal[1]);
+        Assert.Equal(0x5000 + 100, fromOriginal[2]);
+    }
+
     private static int* Zeroed() => (int*)NativeMemory.AllocZeroed(8);
+
+    private static int* ZeroedN(int bytes) => (int*)NativeMemory.AllocZeroed((nuint)bytes);
+
+    // __thiscall, no args: mov eax,buf; mov [eax],ecx; mov eax,0xABCD; ret
+    private static byte[] ThiscallRecorder0(nint buffer)
+    {
+        var code = new List<byte> { 0xB8 };
+        AppendInt32(code, buffer);
+        code.AddRange([0x89, 0x08, 0xB8, 0xCD, 0xAB, 0x00, 0x00, 0xC3]);
+        return [.. code];
+    }
+
+    // __thiscall, three args: writes ecx and [esp+4],[esp+8],[esp+0x0C], then ret 12.
+    private static byte[] ThiscallRecorder3(nint buffer)
+    {
+        var code = new List<byte> { 0xB8 };
+        AppendInt32(code, buffer);
+        code.AddRange([0x89, 0x08, 0x8B, 0x54, 0x24, 0x04, 0x89, 0x50, 0x04, 0x8B, 0x54, 0x24, 0x08, 0x89, 0x50, 0x08, 0x8B, 0x54, 0x24, 0x0C, 0x89, 0x50, 0x0C, 0xC2, 0x0C, 0x00]);
+        return [.. code];
+    }
+
+    // __cdecl, three args: records (this, a, b) from [esp+4],[esp+8],[esp+0x0C], then ret.
+    private static byte[] CdeclRecorder2(nint buffer)
+    {
+        var code = new List<byte> { 0xB8 };
+        AppendInt32(code, buffer);
+        code.AddRange([0x8B, 0x54, 0x24, 0x04, 0x89, 0x10, 0x8B, 0x54, 0x24, 0x08, 0x89, 0x50, 0x04, 0x8B, 0x54, 0x24, 0x0C, 0x89, 0x50, 0x08, 0xC3]);
+        return [.. code];
+    }
+
+    // __thiscall, two args: writes ecx and [esp+4],[esp+8], then ret 8.
+    private static byte[] ThiscallRecorder2(nint buffer)
+    {
+        var code = new List<byte> { 0xB8 };
+        AppendInt32(code, buffer);
+        code.AddRange([0x89, 0x08, 0x8B, 0x54, 0x24, 0x04, 0x89, 0x50, 0x04, 0x8B, 0x54, 0x24, 0x08, 0x89, 0x50, 0x08, 0xC2, 0x08, 0x00]);
+        return [.. code];
+    }
+
+    // __cdecl Invoke(stub, this, a, b): call stub as __thiscall (ecx=this, a and b pushed), then ret.
+    // mov ecx,[esp+8]; push [esp+0x10]; push [esp+0x10]; mov eax,[esp+0x0C]; call eax; ret
+    private static byte[] ThiscallCaller2() =>
+        [0x8B, 0x4C, 0x24, 0x08, 0xFF, 0x74, 0x24, 0x10, 0xFF, 0x74, 0x24, 0x10, 0x8B, 0x44, 0x24, 0x0C, 0xFF, 0xD0, 0xC3];
 
     // __thiscall: mov eax,buf; mov [eax],ecx; mov edx,[esp+4]; mov [eax+4],edx; ret 4
     private static byte[] ThiscallRecorder(nint buffer)
