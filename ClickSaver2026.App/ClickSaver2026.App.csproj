@@ -12,7 +12,7 @@
     <!-- ThemeMode (Fluent) is still marked experimental. -->
     <NoWarn>$(NoWarn);WPF0001</NoWarn>
 
-    <!-- The runnable app: Build\Release\ClickSaver2026.exe. CMake puts the hook DLL beside it. -->
+    <!-- The runnable app: Build\Release\ClickSaver2026.exe. build.ps1 publishes the hook DLL beside it. -->
     <OutDir>$(BuildRoot)$(Configuration)\</OutDir>
   </PropertyGroup>
 

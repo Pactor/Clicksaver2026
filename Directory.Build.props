@@ -17,7 +17,6 @@
          Build\Tests\                test assemblies
          Build\Harness\              the stand-in client for the hook tests
          Build\obj\, Build\bin\      intermediate and library output
-         Build\cmake\                CMake build trees
          Build\TestResults\          test run results -->
   <PropertyGroup>
     <BuildRoot>$(MSBuildThisFileDirectory)Build\</BuildRoot>
