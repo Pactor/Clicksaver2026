@@ -24,6 +24,7 @@ public sealed class BuyingAgentViewModel : ObservableObject
     private BuyingAgent? agent;
     private CancellationTokenSource? cancel;
     private string itemWatch = string.Empty;
+    private string locationWatch = string.Empty;
     private int maxRolls = 10;
     private int rollsDone;
     private int replaysSeen;
@@ -54,6 +55,13 @@ public sealed class BuyingAgentViewModel : ObservableObject
     {
         get => this.itemWatch;
         set => this.Set(ref this.itemWatch, value);
+    }
+
+    /// <summary>Areas (playfields) to watch for, one per line; combines with the item watch.</summary>
+    public string LocationWatch
+    {
+        get => this.locationWatch;
+        set => this.Set(ref this.locationWatch, value);
     }
 
     public int MaxRolls
@@ -89,7 +97,7 @@ public sealed class BuyingAgentViewModel : ObservableObject
     public bool CanStart =>
         !this.Running
         && this.hook.SelectedClient is { CanRoll: true, HasRecording: true }
-        && !string.IsNullOrWhiteSpace(this.ItemWatch);
+        && (!string.IsNullOrWhiteSpace(this.ItemWatch) || !string.IsNullOrWhiteSpace(this.LocationWatch));
 
     /// <summary>Feed a mission list the client produced, so a running roll can check it.</summary>
     public void OnMissionList(int processId, MissionList list)
@@ -134,16 +142,18 @@ public sealed class BuyingAgentViewModel : ObservableObject
 
         int processId = client.ProcessId;
 
-        var watch = WatchList.Parse(this.ItemWatch);
-        if (watch.IsEmpty)
+        var items = WatchList.Parse(this.ItemWatch);
+        var areas = WatchList.Parse(this.LocationWatch);
+        if (items.IsEmpty && areas.IsEmpty)
         {
-            this.Status = "Enter one or more item names to watch for (one per line).";
+            this.Status = "Enter item names and/or areas to watch for (one per line).";
             return;
         }
 
+        MissionMatcher matcher = this.missions.CreateMatcher();
         this.targetProcessId = processId;
         this.cancel = new CancellationTokenSource();
-        this.agent = new BuyingAgent(ct => this.RollAsync(processId, ct), list => this.missions.Matches(list, watch));
+        this.agent = new BuyingAgent(ct => this.RollAsync(processId, ct), list => matcher.Matches(list, items, areas));
         this.Running = true;
         this.RollsDone = 0;
         this.replaysSeen = 0;
@@ -183,8 +193,8 @@ public sealed class BuyingAgentViewModel : ObservableObject
             // Rolling has already stopped, so the matched mission is still on the terminal. Alert
             // the user to accept it, naming the actual item that matched (not the whole watch list),
             // before rolling again would replace it.
-            string? found = matched.Match is { } list ? this.missions.FirstMatch(list, watch) : null;
-            string what = found is null ? "a watched item" : $"\"{found}\"";
+            MissionMatch? found = matched.Match is { } list ? matcher.FirstMatch(list, items, areas) : null;
+            string what = found is null ? "a watched mission" : found.Description;
             this.MatchFound?.Invoke(string.Create(
                 CultureInfo.CurrentCulture,
                 $"Found {what} on roll {matched.Rolls}.\n\nRolling has stopped. Accept the mission at the terminal now - rolling again replaces it."));

@@ -45,6 +45,7 @@
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
@@ -57,13 +58,18 @@
                             <TextBlock Text="Watch items:" VerticalAlignment="Top" Margin="0,4,8,0" />
                             <TextBox Grid.Column="1" Text="{Binding ItemWatch, UpdateSourceTrigger=PropertyChanged}"
                                      AcceptsReturn="True" TextWrapping="NoWrap" VerticalScrollBarVisibility="Auto"
-                                     Height="72" VerticalContentAlignment="Top"
+                                     Height="60" VerticalContentAlignment="Top"
                                      ToolTip="One item name per line; a mission matches if any line matches (substring, so partial or exact). Within a line: space-separated terms all match, -term excludes, &quot;quoted phrase&quot;." />
                             <TextBlock Grid.Column="2" Text="Max rolls:" VerticalAlignment="Top" Margin="12,4,4,0" />
                             <TextBox Grid.Column="3" Text="{Binding MaxRolls}" Width="52" VerticalAlignment="Top" />
                             <Button Grid.Column="4" Content="Start" Command="{Binding StartCommand}" Margin="8,0,0,0" MinWidth="70" VerticalAlignment="Top" />
                             <Button Grid.Column="5" Content="Stop" Command="{Binding StopCommand}" Margin="4,0,0,0" MinWidth="70" VerticalAlignment="Top" />
-                            <TextBlock Grid.Row="1" Grid.ColumnSpan="6" Text="{Binding Status}" Margin="0,6,0,0" Opacity="0.85" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Grid.Row="1" Text="Watch areas:" VerticalAlignment="Top" Margin="0,8,8,0" />
+                            <TextBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="5" Text="{Binding LocationWatch, UpdateSourceTrigger=PropertyChanged}"
+                                     AcceptsReturn="True" TextWrapping="NoWrap" VerticalScrollBarVisibility="Auto"
+                                     Height="44" VerticalContentAlignment="Top" Margin="0,4,0,0"
+                                     ToolTip="Optional. One playfield per line (substring), e.g. Borealis. A mission matches only if it is in a watched area AND (if set) matches a watched item." />
+                            <TextBlock Grid.Row="2" Grid.ColumnSpan="6" Text="{Binding Status}" Margin="0,6,0,0" Opacity="0.85" TextTrimming="CharacterEllipsis" />
                         </Grid>
                     </GroupBox>
 

@@ -59,69 +59,8 @@ public sealed class MissionsViewModel : ObservableObject, IDisposable
     public MissionListView BuildView(MissionList list, DateTime receivedUtc, string source) =>
         new(list, receivedUtc, source, this.database, this.icons);
 
-    /// <summary>
-    /// True when any mission in the list has a reward item name, or an item to find, that the
-    /// watch matches. Reward names come from the game database when it is set.
-    /// </summary>
-    public bool Matches(MissionList list, WatchList watch)
-    {
-        if (watch.IsEmpty)
-        {
-            return false;
-        }
-
-        foreach (Mission mission in list.Missions)
-        {
-            foreach (MissionRewardItem reward in mission.Rewards)
-            {
-                if (this.database is { } db && watch.Matches(db.Resolve(reward).Name))
-                {
-                    return true;
-                }
-            }
-
-            if (mission.FindItem is { } find && watch.Matches(find))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// The first reward-item name or find-item in the list that the watch matches, or null if none.
-    /// Used to tell the user exactly which item stopped the agent, not the whole watch list.
-    /// </summary>
-    public string? FirstMatch(MissionList list, WatchList watch)
-    {
-        if (watch.IsEmpty)
-        {
-            return null;
-        }
-
-        foreach (Mission mission in list.Missions)
-        {
-            foreach (MissionRewardItem reward in mission.Rewards)
-            {
-                if (this.database is { } db)
-                {
-                    string name = db.Resolve(reward).Name;
-                    if (watch.Matches(name))
-                    {
-                        return name;
-                    }
-                }
-            }
-
-            if (mission.FindItem is { } find && watch.Matches(find))
-            {
-                return find;
-            }
-        }
-
-        return null;
-    }
+    /// <summary>A matcher over the current game database, for item + area watches (see Core).</summary>
+    public MissionMatcher CreateMatcher() => new(this.database);
 
     /// <summary>Reads a capture file and raises <see cref="CaptureRollLoaded"/> for each roll in it.</summary>
     public int LoadCapture(string path)
