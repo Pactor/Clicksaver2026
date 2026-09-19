@@ -211,8 +211,12 @@ public sealed class HookViewModel : ObservableObject, IAsyncDisposable
 
     /// <summary>Ask the hook in <paramref name="processId"/> to roll missions once.</summary>
     /// <returns>False when no command channel to that client is open.</returns>
-    public Task<bool> SendRollAsync(int processId, uint id, CancellationToken cancellation) =>
-        this.commandServer.SendAsync(processId, HookProtocol.RequestMissionsCommand, id, ReadOnlyMemory<byte>.Empty, cancellation);
+    /// <summary>Rolls a mission; <paramref name="tick"/> 1..11 sets the difficulty, 0 repeats the capture.</summary>
+    public Task<bool> SendRollAsync(int processId, uint id, int tick, CancellationToken cancellation)
+    {
+        ReadOnlyMemory<byte> payload = tick is >= 1 and <= 11 ? new byte[] { (byte)tick } : ReadOnlyMemory<byte>.Empty;
+        return this.commandServer.SendAsync(processId, HookProtocol.RequestMissionsCommand, id, payload, cancellation);
+    }
 
     /// <summary>True when the hook in <paramref name="processId"/> can roll and its command channel is open.</summary>
     public bool CanRoll(int processId) =>

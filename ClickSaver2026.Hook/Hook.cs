@@ -40,6 +40,11 @@ internal static unsafe class Hook
     // for the mission request. Hooked in Interfaces.dll's IAT to capture the request's wire bytes.
     private const string ConnectionSendName = "?Send@Connection_t@@QAEHIABVMessage_t@@@Z";
 
+    // The mission-request message carries the difficulty slider tick (1..11) at this byte. Patching
+    // it lets the app roll at a chosen difficulty without the player hand-rolling at that setting.
+    private const int RequestDifficultyOffset = 0x1E;
+    private const byte MaxDifficultyTick = 11;
+
     // Connection_t::Send(unsigned int id, unsigned int size, const void* data) - the raw send,
     // exported by Connection.dll and thread-safe (a send lock). Resending the captured bytes through
     // it rolls again, from any thread, without touching the mouse or the client's UI.
@@ -451,7 +456,7 @@ internal static unsafe class Hook
 
     private static void HandleCommand(uint kind, uint id, ReadOnlySpan<byte> payload)
     {
-        if (kind != (uint)CommandKind.RequestMissions || payload.Length != 0)
+        if (kind != (uint)CommandKind.RequestMissions || payload.Length > 1)
         {
             SendCommandResult(id, CommandStatus.BadCommand);
             return;
@@ -463,11 +468,14 @@ internal static unsafe class Hook
             return;
         }
 
+        // An optional one-byte payload is the difficulty tick to roll at; 0 or empty = as captured.
+        byte tick = payload.Length == 1 ? payload[0] : (byte)0;
+
         // The raw send is thread-safe, so the roll runs right here on the command thread.
         Interlocked.Increment(ref inFlight);
         try
         {
-            DoRoll(id);
+            DoRoll(id, tick);
         }
         catch
         {
@@ -481,7 +489,7 @@ internal static unsafe class Hook
 
     // Resends the captured mission-request bytes through the exported raw Connection_t::Send, which
     // takes its own send lock, so this is safe from any thread and never touches the client's UI.
-    private static void DoRoll(uint id)
+    private static void DoRoll(uint id, byte tick)
     {
         nint connection;
         uint messageId;
@@ -506,6 +514,12 @@ internal static unsafe class Hook
         {
             SendCommandResult(id, CommandStatus.NotSupported);
             return;
+        }
+
+        // Roll at the requested difficulty tick, else at whatever the capture held.
+        if (tick is >= 1 and <= MaxDifficultyTick && bytes.Length > RequestDifficultyOffset)
+        {
+            bytes[RequestDifficultyOffset] = tick;
         }
 
         fixed (byte* p = bytes)

@@ -25,6 +25,7 @@ public sealed class BuyingAgentViewModel : ObservableObject
     private CancellationTokenSource? cancel;
     private string itemWatch = string.Empty;
     private string locationWatch = string.Empty;
+    private int difficulty; // 0 = repeat the last hand-roll's difficulty; 1..11 = a fixed tick
     private int maxRolls = 10;
     private int rollsDone;
     private int replaysSeen;
@@ -68,6 +69,16 @@ public sealed class BuyingAgentViewModel : ObservableObject
     {
         get => this.maxRolls;
         set => this.Set(ref this.maxRolls, Math.Clamp(value, 1, 1000));
+    }
+
+    /// <summary>
+    /// The difficulty tick every roll uses: 0 repeats the difficulty of your last hand-roll, 1..11
+    /// force that slider tick. Bound to a combo whose first item (index 0) is "Repeat last roll".
+    /// </summary>
+    public int Difficulty
+    {
+        get => this.difficulty;
+        set => this.Set(ref this.difficulty, Math.Clamp(value, 0, 11));
     }
 
     public int RollsDone
@@ -214,7 +225,7 @@ public sealed class BuyingAgentViewModel : ObservableObject
         this.pendingRolls[id] = result;
         try
         {
-            if (!await this.hook.SendRollAsync(processId, id, cancellation).ConfigureAwait(true))
+            if (!await this.hook.SendRollAsync(processId, id, this.Difficulty, cancellation).ConfigureAwait(true))
             {
                 return CommandStatus.NotSupported;
             }
