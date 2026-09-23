@@ -46,6 +46,7 @@
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
@@ -86,7 +87,37 @@
                                 <Button Content="Start" Command="{Binding StartCommand}" Margin="0,0,0,4" MinWidth="70" />
                                 <Button Content="Stop" Command="{Binding StopCommand}" MinWidth="70" />
                             </StackPanel>
-                            <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Text="{Binding Status}" Margin="0,6,0,0" Opacity="0.85" TextTrimming="CharacterEllipsis" />
+                            <StackPanel Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,8,0,0">
+                                <CheckBox Content="Custom sliders" IsChecked="{Binding CustomSliders}" Margin="0,0,0,4"
+                                          ToolTip="Set the six mission sliders on every roll (like the client's advanced panel). 0% = left pole, 100% = right pole, 50% = default." />
+                                <WrapPanel IsEnabled="{Binding CustomSliders}">
+                                    <StackPanel Margin="0,0,12,4">
+                                        <TextBlock Text="Good–Bad" FontSize="11" Opacity="0.8" />
+                                        <ComboBox Width="66" ItemsSource="{Binding SliderStepLabels}" SelectedIndex="{Binding GoodBad}" />
+                                    </StackPanel>
+                                    <StackPanel Margin="0,0,12,4">
+                                        <TextBlock Text="Order–Chaos" FontSize="11" Opacity="0.8" />
+                                        <ComboBox Width="66" ItemsSource="{Binding SliderStepLabels}" SelectedIndex="{Binding OrderChaos}" />
+                                    </StackPanel>
+                                    <StackPanel Margin="0,0,12,4">
+                                        <TextBlock Text="Open–Hidden" FontSize="11" Opacity="0.8" />
+                                        <ComboBox Width="66" ItemsSource="{Binding SliderStepLabels}" SelectedIndex="{Binding OpenHidden}" />
+                                    </StackPanel>
+                                    <StackPanel Margin="0,0,12,4">
+                                        <TextBlock Text="Physical–Mystical" FontSize="11" Opacity="0.8" />
+                                        <ComboBox Width="66" ItemsSource="{Binding SliderStepLabels}" SelectedIndex="{Binding PhysicalMystical}" />
+                                    </StackPanel>
+                                    <StackPanel Margin="0,0,12,4">
+                                        <TextBlock Text="Head-on–Stealth" FontSize="11" Opacity="0.8" />
+                                        <ComboBox Width="66" ItemsSource="{Binding SliderStepLabels}" SelectedIndex="{Binding HeadStealth}" />
+                                    </StackPanel>
+                                    <StackPanel Margin="0,0,12,4">
+                                        <TextBlock Text="Money–XP" FontSize="11" Opacity="0.8" />
+                                        <ComboBox Width="66" ItemsSource="{Binding SliderStepLabels}" SelectedIndex="{Binding MoneyXp}" />
+                                    </StackPanel>
+                                </WrapPanel>
+                            </StackPanel>
+                            <TextBlock Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3" Text="{Binding Status}" Margin="0,6,0,0" Opacity="0.85" TextTrimming="CharacterEllipsis" />
                         </Grid>
                     </GroupBox>
 

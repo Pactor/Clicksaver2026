@@ -26,6 +26,8 @@ public sealed class BuyingAgentViewModel : ObservableObject
     private string itemWatch = string.Empty;
     private string locationWatch = string.Empty;
     private int difficulty; // 0 = repeat the last hand-roll's difficulty; 1..11 = a fixed tick
+    private bool customSliders;
+    private readonly int[] sliderSteps = [2, 2, 2, 2, 2, 2]; // 0..4 = 0/25/50/75/100%; 2 = 50% default
     private int maxRolls = 10;
     private int rollsDone;
     private int replaysSeen;
@@ -79,6 +81,58 @@ public sealed class BuyingAgentViewModel : ObservableObject
     {
         get => this.difficulty;
         set => this.Set(ref this.difficulty, Math.Clamp(value, 0, 11));
+    }
+
+    /// <summary>Combo options for each slider: 0% is the left pole, 100% the right pole.</summary>
+    public static IReadOnlyList<string> SliderStepLabels { get; } = ["0%", "25%", "50%", "75%", "100%"];
+
+    /// <summary>When on, every roll also sets the six sliders below; off leaves them as captured.</summary>
+    public bool CustomSliders
+    {
+        get => this.customSliders;
+        set => this.Set(ref this.customSliders, value);
+    }
+
+    // The six sliders as a 0..4 step (0/25/50/75/100%), bound to a combo's SelectedIndex each.
+    public int GoodBad { get => this.sliderSteps[0]; set => this.SetSlider(0, value); }
+
+    public int OrderChaos { get => this.sliderSteps[1]; set => this.SetSlider(1, value); }
+
+    public int OpenHidden { get => this.sliderSteps[2]; set => this.SetSlider(2, value); }
+
+    public int PhysicalMystical { get => this.sliderSteps[3]; set => this.SetSlider(3, value); }
+
+    public int HeadStealth { get => this.sliderSteps[4]; set => this.SetSlider(4, value); }
+
+    public int MoneyXp { get => this.sliderSteps[5]; set => this.SetSlider(5, value); }
+
+    private void SetSlider(int index, int step, [System.Runtime.CompilerServices.CallerMemberName] string? name = null)
+    {
+        step = Math.Clamp(step, 0, 4);
+        if (this.sliderSteps[index] != step)
+        {
+            this.sliderSteps[index] = step;
+            this.OnPropertyChanged(name);
+        }
+    }
+
+    // Empty = roll as captured; 1 byte = difficulty tick; 7 bytes = tick + the six slider bytes.
+    private ReadOnlyMemory<byte> BuildRollPayload()
+    {
+        byte tick = (byte)this.Difficulty; // 0 = keep the captured difficulty
+        if (!this.CustomSliders)
+        {
+            return tick is >= 1 and <= 11 ? new byte[] { tick } : ReadOnlyMemory<byte>.Empty;
+        }
+
+        var payload = new byte[1 + MissionSliders.Count];
+        payload[0] = tick;
+        for (int i = 0; i < MissionSliders.Count; i++)
+        {
+            payload[1 + i] = MissionSliders.Encode(this.sliderSteps[i] * 25);
+        }
+
+        return payload;
     }
 
     public int RollsDone
@@ -225,7 +279,7 @@ public sealed class BuyingAgentViewModel : ObservableObject
         this.pendingRolls[id] = result;
         try
         {
-            if (!await this.hook.SendRollAsync(processId, id, this.Difficulty, cancellation).ConfigureAwait(true))
+            if (!await this.hook.SendRollAsync(processId, id, this.BuildRollPayload(), cancellation).ConfigureAwait(true))
             {
                 return CommandStatus.NotSupported;
             }

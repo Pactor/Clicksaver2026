@@ -45,6 +45,11 @@ internal static unsafe class Hook
     private const int RequestDifficultyOffset = 0x1E;
     private const byte MaxDifficultyTick = 11;
 
+    // The six signed mission sliders (GoodBad, Order/Chaos, Open/Hidden, Physical/Mystical,
+    // HeadOn/Stealth, Money/XP) sit right after the difficulty byte; each is (percent - 50) * 2.
+    private const int RequestSlidersOffset = 0x1F;
+    private const int SliderCount = 6;
+
     // Connection_t::Send(unsigned int id, unsigned int size, const void* data) - the raw send,
     // exported by Connection.dll and thread-safe (a send lock). Resending the captured bytes through
     // it rolls again, from any thread, without touching the mouse or the client's UI.
@@ -456,7 +461,8 @@ internal static unsafe class Hook
 
     private static void HandleCommand(uint kind, uint id, ReadOnlySpan<byte> payload)
     {
-        if (kind != (uint)CommandKind.RequestMissions || payload.Length > 1)
+        // Payload: empty = as captured; 1 byte = difficulty tick; 7 bytes = tick + the six sliders.
+        if (kind != (uint)CommandKind.RequestMissions || payload.Length is not (0 or 1 or 7))
         {
             SendCommandResult(id, CommandStatus.BadCommand);
             return;
@@ -468,14 +474,14 @@ internal static unsafe class Hook
             return;
         }
 
-        // An optional one-byte payload is the difficulty tick to roll at; 0 or empty = as captured.
-        byte tick = payload.Length == 1 ? payload[0] : (byte)0;
+        byte tick = payload.Length >= 1 ? payload[0] : (byte)0;
+        ReadOnlySpan<byte> sliders = payload.Length == 7 ? payload.Slice(1, SliderCount) : default;
 
         // The raw send is thread-safe, so the roll runs right here on the command thread.
         Interlocked.Increment(ref inFlight);
         try
         {
-            DoRoll(id, tick);
+            DoRoll(id, tick, sliders);
         }
         catch
         {
@@ -489,7 +495,7 @@ internal static unsafe class Hook
 
     // Resends the captured mission-request bytes through the exported raw Connection_t::Send, which
     // takes its own send lock, so this is safe from any thread and never touches the client's UI.
-    private static void DoRoll(uint id, byte tick)
+    private static void DoRoll(uint id, byte tick, ReadOnlySpan<byte> sliders)
     {
         nint connection;
         uint messageId;
@@ -520,6 +526,12 @@ internal static unsafe class Hook
         if (tick is >= 1 and <= MaxDifficultyTick && bytes.Length > RequestDifficultyOffset)
         {
             bytes[RequestDifficultyOffset] = tick;
+        }
+
+        // Overwrite the six signed slider bytes when supplied (each already percent-encoded).
+        if (sliders.Length == SliderCount && bytes.Length >= RequestSlidersOffset + SliderCount)
+        {
+            sliders.CopyTo(bytes.AsSpan(RequestSlidersOffset, SliderCount));
         }
 
         fixed (byte* p = bytes)
