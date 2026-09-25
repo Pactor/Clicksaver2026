@@ -83,6 +83,7 @@ internal static unsafe class Hook
     // The captured outgoing mission-request send, resent to roll.
     private static bool haveSendRecording;
     private static nint sendConnection;                         // Connection_t* (the send's this)
+    private static nint liveConnection;                         // the most recent Connection_t*, to spot a stale capture
     private static uint sendMessageId;                          // the send's id argument
     private static byte[] sendBytes = [];                       // the request's wire bytes
 
@@ -359,6 +360,13 @@ internal static unsafe class Hook
         Interlocked.Increment(ref inFlight);
         try
         {
+            // Track the live connection on every mission send, so a stale capture (recorded on a
+            // connection that has since been torn down, e.g. after zoning) can be spotted at roll time.
+            if (active && self != 0)
+            {
+                Volatile.Write(ref liveConnection, self);
+            }
+
             if (active && message != 0 && expectSend && NativeApi.GetCurrentThreadId() == expectSendThread)
             {
                 expectSend = false;
@@ -500,10 +508,21 @@ internal static unsafe class Hook
         nint connection;
         uint messageId;
         byte[] bytes;
+        nint live = Volatile.Read(ref liveConnection);
         lock (RequestLock)
         {
             if (!haveSendRecording || sendBytes.Length == 0)
             {
+                SendCommandResult(id, CommandStatus.NothingRecorded);
+                return;
+            }
+
+            // The capture was recorded on a connection that no longer matches the live one (zoned or
+            // relogged since). Sending on the stale connection crashes the client, so drop the capture
+            // and make the player hand-roll again for this terminal.
+            if (live != 0 && live != sendConnection)
+            {
+                haveSendRecording = false;
                 SendCommandResult(id, CommandStatus.NothingRecorded);
                 return;
             }
